@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<script>
+/* 舰桥入口早绑定：开场层在 9 MB 舰体数据解析完成前就已可见，
+   期间点击不能「毫无反应」。注册在 head 最前、window 捕获阶段并做事件委托，
+   因此按钮节点被托管平台替换/包裹时也照样命中；app.js 就绪后接管。 */
+(function () {
+  var B = window.__NS_BRIDGE__ = { ready: false, pending: false, enter: null };
+  function wait(btn) {
+    B.pending = true;
+    if (btn) { btn.textContent = '舰 桥 接 入 中 …'; btn.style.opacity = '.75'; }
+  }
+  window.addEventListener('click', function (e) {
+    var t = e.target;
+    if (!t || !t.closest || !t.closest('#btn-start')) return;
+    e.preventDefault();
+    if (B.enter) { B.enter(); return; }
+    wait(document.getElementById('btn-start'));
+  }, true);
+  window.addEventListener('keydown', function (e) {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    var s = document.getElementById('startscreen');
+    if (!s || s.classList.contains('hidden')) return;
+    e.preventDefault();
+    if (B.enter) { B.enter(); return; }
+    wait(document.getElementById('btn-start'));
+  }, true);
+  window.setTimeout(function () {
+    if (B.ready) return;
+    var b = document.getElementById('btn-start');
+    if (b && B.pending) b.textContent = '载入较慢 · 请刷新重试';
+  }, 10000);
+})();
+</script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>自然选择号 · 深空航行模拟</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div id="viewport"></div>
+
+<!-- 纯 CSS 的跃迁视觉层：放射速度线 / 边缘蓝移 / 暗角 / 扫描线 -->
+<div id="fx-lines"></div>
+<div id="fx-glow"></div>
+<div id="vignette"></div>
+<div id="scanlines"></div>
+<div id="flash"></div>
+
+<div id="hud">
+
+  <!-- 左上：舰籍信息 -->
+  <section class="panel ship-info" id="ship-info">
+    <div class="corner tl"></div><div class="corner tr"></div>
+    <div class="corner bl"></div><div class="corner br"></div>
+    <div class="eyebrow">ASIAN FLEET · 恒星级战舰 · NS-01</div>
+    <h1>自然选择号</h1>
+    <div class="sub">NATURAL SELECTION</div>
+    <div class="divider"></div>
+    <div class="kv"><span>指挥官权限</span><b class="ok">已确认 / COMMAND</b></div>
+    <div class="kv"><span>舰体状态</span><b class="ok">正常 / NOMINAL</b></div>
+    <div class="kv"><span>舰队编队</span><b id="fleet-status">12 / 12 在列</b></div>
+    <div class="kv"><span>当前阵型</span><b id="v-formation">楔形前锋</b></div>
+    <div class="kv"><span>舰体数据</span><b id="v-model" class="ok">检测中</b></div>
+  </section>
+
+  <!-- 右上：航行数据 -->
+  <section class="panel nav-data" id="nav-data">
+    <div class="corner tl"></div><div class="corner tr"></div>
+    <div class="corner bl"></div><div class="corner br"></div>
+    <div class="eyebrow">NAVIGATION / 航行数据</div>
+    <div class="kv"><span>航向 HDG</span><b id="v-heading">000.0°</b></div>
+    <div class="kv"><span>俯仰 PITCH</span><b id="v-pitch">+00.0°</b></div>
+    <div class="kv"><span>滚转 ROLL</span><b id="v-roll">+00.0°</b></div>
+    <div class="kv"><span>航程 DIST</span><b id="v-dist">0.00 万 km</b></div>
+    <div class="divider"></div>
+    <div class="kv"><span>相对速度</span><b id="v-speed">0.000 c</b></div>
+    <div class="kv"><span>km/s</span><b id="v-kms">0</b></div>
+    <div class="kv"><span>引擎输出</span><b id="v-thrust">0 %</b></div>
+  </section>
+
+  <!-- 左下：编队雷达 -->
+  <section class="panel radar-panel" id="radar-panel">
+    <div class="eyebrow">FORMATION RADAR / 编队</div>
+    <canvas id="radar" width="180" height="180"></canvas>
+    <div class="radar-legend"><i class="dot flagship"></i>旗舰 <i class="dot wing"></i>僚舰 <span id="radar-label">1/5 楔形前锋</span></div>
+  </section>
+
+  <!-- 右下：档位与速度 -->
+  <section class="panel drive-panel" id="drive-panel">
+    <div class="corner tl"></div><div class="corner tr"></div>
+    <div class="corner bl"></div><div class="corner br"></div>
+    <div class="eyebrow">PROPULSION / 推进控制</div>
+    <div class="gear-display">
+      <div class="gear-name" id="gear-name">停车</div>
+      <div class="gear-en" id="gear-en">ALL STOP</div>
+    </div>
+    <div class="speed-big"><span id="speed-big">0.000</span><em>c</em></div>
+    <div class="speed-track">
+      <div class="speed-fill" id="speed-fill"></div>
+      <div class="tick" style="left:20%"></div>
+      <div class="tick" style="left:40%"></div>
+      <div class="tick" style="left:60%"></div>
+      <div class="tick" style="left:80%"></div>
+      <div class="warp-mark">跃迁阈值 0.10c</div>
+    </div>
+    <div class="engine-state"><span id="engine-dot" class="led"></span><span id="engine-text">聚变引擎 · 待机</span></div>
+  </section>
+
+  <!-- 底部中央：档位按钮 -->
+  <div class="gearbar" id="gearbar">
+    <button class="gearbtn" data-gear="0"><span class="num">0</span><span class="lbl">停车</span></button>
+    <button class="gearbtn" data-gear="1"><span class="num">1</span><span class="lbl">前进一</span></button>
+    <button class="gearbtn" data-gear="2"><span class="num">2</span><span class="lbl">前进二</span></button>
+    <button class="gearbtn" data-gear="3"><span class="num">3</span><span class="lbl">前进三</span></button>
+    <button class="gearbtn warp" data-gear="4"><span class="num">4</span><span class="lbl">前进四 · 跃迁</span></button>
+  </div>
+
+  <!-- 底部提示 -->
+  <div class="hintbar" id="hintbar">
+    <span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 姿态</span>
+    <span><kbd>Q</kbd><kbd>E</kbd> 滚转 · <b>鼠标</b> 转向</span>
+    <span><kbd>1</kbd>–<kbd>4</kbd> 档位 · <kbd>滚轮</kbd> 换档</span>
+    <span><kbd>F</kbd> 阵型 · <kbd>V</kbd> 视角</span>
+    <span><kbd>R</kbd> 复位 <kbd>H</kbd> 帮助 <kbd>M</kbd> 静音</span>
+  </div>
+
+  <!-- 中央提示 -->
+  <div id="toast"><div class="toast-main" id="toast-main">前进四</div><div class="toast-sub" id="toast-sub">AHEAD FOUR</div></div>
+  <div id="warp-banner">
+    <div class="warp-title">前进四 · 跃迁模式</div>
+    <div class="warp-sub">WARP ENGAGED — 0.10 c — 29,979 km/s</div>
+    <div class="warp-rule"></div>
+  </div>
+
+  <div id="reticle"><i></i><i></i><i></i><i></i><span></span></div>
+</div>
+
+<!-- 顶部工具按钮 -->
+<div id="toolbar">
+  <button id="btn-help" title="操作说明 (H)">?</button>
+  <button id="btn-formation" title="切换阵型 (F / Shift+F)">◇</button>
+  <button id="btn-mute" title="静音 (M)">♪</button>
+  <button id="btn-lock" title="锁定鼠标指针">◎</button>
+</div>
+
+<!-- 开场 / 帮助面板 -->
+<div id="startscreen">
+  <div class="start-card">
+    <div class="corner tl"></div><div class="corner tr"></div>
+    <div class="corner bl"></div><div class="corner br"></div>
+    <div class="start-tag">DEEP SPACE FLIGHT SIMULATOR · 深空航行模拟</div>
+    <h2>自然选择号</h2>
+    <div class="start-en">NATURAL SELECTION · NS-01</div>
+    <p class="quote">「自然选择号，前进四！」</p>
+    <p class="start-desc">你是这支人类舰队的指挥官。驾驶旗舰在星际间自由航行，<br>切换推进档位；当推进到「前进四」，舰队将以 <b>0.10 c</b> 进入跃迁。</p>
+    <div class="start-keys">
+      <div><kbd>鼠标</kbd> 移动转向 / <kbd>W A S D</kbd> 姿态 / <kbd>Q E</kbd> 滚转</div>
+      <div><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> <kbd>4</kbd> 切换前进档 · <kbd>0</kbd> 停车 · <kbd>滚轮</kbd> 换档</div>
+      <div><kbd>F</kbd> / <kbd>Shift</kbd>+<kbd>F</kbd> 切换 5 套舰队阵型 · <kbd>V</kbd> 跟随视角 · <kbd>R</kbd> 复位</div>
+      <div><kbd>H</kbd> 帮助 · <kbd>M</kbd> 静音 · <kbd>P</kbd> 暂停</div>
+    </div>
+    <button id="btn-start">进 入 舰 桥</button>
+    <div class="start-foot">演示数值为游戏化设定，非原著设定 · 本地运行，无需联网</div>
+  </div>
+</div>
+
+<div id="help-panel" class="hidden">
+  <div class="help-card">
+    <div class="eyebrow">FLIGHT MANUAL / 操作手册</div>
+    <h3>航行控制</h3>
+    <table>
+      <tr><td>鼠标移动 / 触摸滑动</td><td>控制航向与俯仰（离中心越远转得越快）</td></tr>
+      <tr><td>W / S · ↑ / ↓</td><td>低头 / 抬头</td></tr>
+      <tr><td>A / D · ← / →</td><td>左转 / 右转</td></tr>
+      <tr><td>Q / E</td><td>左滚转 / 右滚转</td></tr>
+      <tr><td>数字 1–4 / 滚轮 / 档位按钮</td><td>前进一 → 前进四（0 = 停车）</td></tr>
+      <tr><td>F / Shift + F</td><td>循环切换 5 套阵型：楔形前锋 / 环形护卫 / 双列巡航 / 战列横队 / 松散巡航</td></tr>
+      <tr><td>V / R / H / M / P</td><td>视角 / 复位 / 帮助 / 静音 / 暂停</td></tr>
+      <tr><td>点击画面</td><td>锁定鼠标指针（Esc 退出）</td></tr>
+    </table>
+    <p class="help-note">「前进四」为跃迁档：0.10 倍光速，伴随星光拖尾、速度线与镜头拉伸。按 0 或 1–3 即可退出跃迁。</p>
+    <button id="btn-help-close">关 闭</button>
+  </div>
+</div>
+
+<div id="paused-tag" class="hidden">已暂停 · 按 P 继续</div>
+<div id="error-box" class="hidden"></div>
+
+<script src="vendor/three.min.js"></script>
+<script>
+// 默认使用结构化 STL 舰体（10 部位 / 分部位 PBR 贴图）；?hull=glb 回退上一代 GLB 做对照。
+// 同一 script 块内 document.write 插入的脚本会同步执行，下一句即可读到 NS_STRUCTURED；
+// 若结构化载荷缺失或执行失败，立即同步补载 GLB，保证 app.js 启动时一定有舰体数据。
+var hullGlb = new URLSearchParams(location.search).get("hull") === "glb";
+if (!hullGlb) {
+  document.write('<scr'+'ipt src="models/NaturalSelection-Structured/ship-structured.js"><\/scr'+'ipt>');
+}
+if (hullGlb || !window.NS_STRUCTURED) {
+  document.write('<scr'+'ipt src="ship-model.js"><\/scr'+'ipt>');
+}
+</script>
+<script src="app.js"></script>
+</body>
+</html>

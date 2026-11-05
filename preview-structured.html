@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>自然选择号 · 结构化模型预览</title>
+<style>
+  * { box-sizing: border-box; }
+  html,body { margin:0; height:100%; background:#05070d; color:#dfe8f5;
+              font-family:"Segoe UI","Microsoft YaHei",sans-serif; overflow:hidden; }
+  #stage { position:absolute; inset:0; }
+  canvas { display:block; }
+  .panel { position:absolute; background:rgba(10,16,28,.82); border:1px solid rgba(120,165,220,.28);
+           border-radius:10px; backdrop-filter:blur(10px); padding:12px 14px; font-size:12px; }
+  #info { left:18px; top:18px; width:270px; }
+  #info h1 { margin:0 0 6px; font-size:15px; letter-spacing:.08em; color:#9fd0ff; }
+  #info .sub { color:#7f93ad; line-height:1.6; margin-bottom:10px; }
+  .row { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:8px; }
+  button { background:rgba(30,48,76,.85); color:#cfe0f5; border:1px solid rgba(120,165,220,.35);
+           border-radius:6px; padding:5px 9px; font-size:11px; cursor:pointer; font-family:inherit; }
+  button.on { background:#2b6cb0; border-color:#63a4ff; color:#fff; }
+  #parts { right:18px; top:18px; width:250px; max-height:calc(100vh - 36px); overflow:auto; }
+  #parts .t { color:#9fd0ff; margin-bottom:8px; font-size:13px; }
+  .pitem { display:flex; justify-content:space-between; gap:8px; padding:4px 6px; border-radius:5px;
+           cursor:pointer; align-items:center; }
+  .pitem:hover { background:rgba(60,100,160,.28); }
+  .pitem.sel { background:rgba(60,120,200,.42); }
+  .sw { width:12px; height:12px; border-radius:3px; flex:none; }
+  .cnt { color:#7f93ad; font-variant-numeric:tabular-nums; }
+  #footer { left:18px; bottom:18px; color:#8aa3c2; line-height:1.7; }
+  #diag { display:none; }
+</style>
+</head>
+<body>
+<div id="stage"></div>
+
+<div class="panel" id="info">
+  <h1>NS-01 自然选择号 / 结构化模型</h1>
+  <div class="sub">STL 60,382 面 → 10 个语义部位<br>每部位独占一个贴图槽位</div>
+  <div class="row" id="modeRow">
+    <button data-mode="textured" class="on">PBR 贴图</button>
+    <button data-mode="grey">原始灰模</button>
+    <button data-mode="ids">部位分区</button>
+  </div>
+  <div class="row" id="viewRow">
+    <button data-view="0" class="on">斜后 3/4</button>
+    <button data-view="1">正俯视</button>
+    <button data-view="2">侧视</button>
+    <button data-view="3">正后</button>
+    <button data-view="4">斜前 3/4</button>
+  </div>
+  <div class="sub" id="modeNote">白色装甲 · 橙色饰条 · 蓝色推进束，按部位分材质</div>
+</div>
+
+<div class="panel" id="parts"><div class="t">部位 / 贴图槽位（点击隔离）</div><div id="partList"></div></div>
+
+<div class="panel" id="footer">
+  拖拽旋转 · 滚轮缩放　|　URL 参数：<code>?mode=textured|grey|ids&amp;view=0..4&amp;part=-1..9</code>
+</div>
+<div id="diag"></div>
+
+<script src="vendor/three.min.js"></script>
+<script src="models/NaturalSelection-Structured/ship-structured.js"></script>
+<script>
+window.addEventListener('error', function(e){
+  document.getElementById('diag').textContent += ' JSERR:' + e.message + ';';
+});
+(function(){
+ var STAGE='init';
+ try{
+  STAGE='model';
+  var S = window.NS_STRUCTURED;
+  var diag = document.getElementById('diag');
+  if (!S) { diag.textContent = 'MODEL_MISSING'; return; }
+  var params = new URLSearchParams(location.search);
+  var mode = params.get('mode') || 'textured';
+  var view = Math.max(0, Math.min(4, parseInt(params.get('view') || '0', 10)));
+  var solo = parseInt(params.get('part') === null ? '-1' : params.get('part'), 10);
+
+  var stage = document.getElementById('stage');
+  var scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x05070d);
+  var camera = new THREE.PerspectiveCamera(42, innerWidth/innerHeight, 0.5, 4000);
+  var renderer = new THREE.WebGLRenderer({antialias:true, alpha:false});
+  renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 1.8));
+  renderer.setSize(innerWidth, innerHeight);
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.outputEncoding = THREE.sRGBEncoding;   // r150 path
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.08;
+  stage.appendChild(renderer.domElement);
+
+  // lights: hard-surface friendly, no env map needed
+  scene.add(new THREE.AmbientLight(0xb9cbe0, 0.42));
+  var key = new THREE.DirectionalLight(0xffffff, 1.62); key.position.set(60, 90, -70); scene.add(key);
+  var fill = new THREE.DirectionalLight(0x8fb6ff, 0.50); fill.position.set(-80, -30, 40); scene.add(fill);
+  var rim  = new THREE.DirectionalLight(0xffd9a0, 0.62); rim.position.set(20, -55, 110); scene.add(rim);
+
+  // starfield
+  (function(){
+    var n=1400, p=new Float32Array(n*3);
+    for(var i=0;i<n;i++){
+      var r=350+Math.random()*450, t=Math.random()*Math.PI*2, u=Math.random()*2-1, s=Math.sqrt(1-u*u);
+      p[i*3]=r*s*Math.cos(t); p[i*3+1]=r*u; p[i*3+2]=r*s*Math.sin(t);
+    }
+    var g=new THREE.BufferGeometry(); g.setAttribute('position',new THREE.BufferAttribute(p,3));
+    scene.add(new THREE.Points(g,new THREE.PointsMaterial({color:0xa9c4e8,size:1.5,sizeAttenuation:false,transparent:true,opacity:.72})));
+  })();
+
+  function b2f(s, Ctor){
+    var bin = atob(s), n = bin.length / (Ctor.BYTES_PER_ELEMENT || 4);
+    var u8 = new Uint8Array(bin.length);
+    for (var i=0;i<bin.length;i++) u8[i]=bin.charCodeAt(i);
+    return new Ctor(u8.buffer);
+  }
+  function tex(data, srgb){
+    var t = new THREE.TextureLoader().load(data);
+    t.flipY = false;                 // glTF UV convention, shared with the GLB
+    t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
+    t.minFilter = THREE.LinearMipmapLinearFilter;
+    if (srgb) { t.colorSpace = THREE.SRGBColorSpace; t.encoding = THREE.sRGBEncoding; }
+    t.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+    return t;
+  }
+  STAGE='textures';
+  var T = {
+    base: tex(S.textures.basecolor, true),
+    nrm:  tex(S.textures.normal, false),
+    mr:   tex(S.textures.mr, false),
+    emi:  tex(S.textures.emissive, true)
+  };
+
+  var root = new THREE.Group(); scene.add(root);
+  var meshes = [], materials = {}, idColors = [
+    0x3b82f6,0x1e40af,0xf5f7fa,0xdbe3ec,0x94a3b8,0xcbd5e1,
+    0xffffff,0x64748b,0x22d3ee,0x475569];
+  STAGE='meshes';
+  S.parts.forEach(function(p, i){
+    var g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(b2f(p.pos, Float32Array), 3));
+    g.setAttribute('normal',   new THREE.BufferAttribute(b2f(p.nrm, Float32Array), 3));
+    g.setAttribute('uv',       new THREE.BufferAttribute(b2f(p.uv,  Float32Array), 2));
+    g.setIndex(new THREE.BufferAttribute(b2f(p.idx, Uint32Array), 1));
+    var m = new THREE.MeshStandardMaterial({
+      map:T.base, normalMap:T.nrm, normalScale:new THREE.Vector2(.85,.85),
+      roughnessMap:T.mr, metalnessMap:T.mr,
+      roughness:p.material.roughness, metalness:p.material.metalness,
+      emissiveMap:T.emi, emissive:new THREE.Color(p.material.emissive*0.42,
+                                                  p.material.emissive*0.62,
+                                                  p.material.emissive*1.0),
+      emissiveIntensity: p.material.emissive > 0 ? 2.4 : 0,
+      side: THREE.DoubleSide
+    });
+    var mesh = new THREE.Mesh(g, m);
+    mesh.name = p.id;
+    mesh.userData = {index:i, pbr:m};
+    root.add(mesh); meshes.push(mesh);
+    materials[i] = {
+      textured:m,
+      grey:new THREE.MeshStandardMaterial({color:0x9aa6b5, roughness:.9, metalness:.05, side:THREE.DoubleSide}),
+      ids:new THREE.MeshBasicMaterial({color:idColors[i], side:THREE.DoubleSide})
+    };
+  });
+
+  // part list
+  var list = document.getElementById('partList');
+  S.parts.forEach(function(p,i){
+    var d=document.createElement('div'); d.className='pitem'+(i===solo?' sel':'');
+    d.innerHTML='<span><i class="sw" style="background:#'+idColors[i].toString(16).padStart(6,'0')+'"></i> '
+                +p.name+' <small style="color:#7f93ad">#'+p.slot+'</small></span>'
+                +'<span class="cnt">'+p.tris+'</span>';
+    d.onclick=function(){ solo = (solo===i?-1:i); apply(); renderList(); };
+    list.appendChild(d);
+  });
+  function renderList(){
+    Array.prototype.forEach.call(list.children,function(el,i){ el.className='pitem'+(i===solo?' sel':''); });
+  }
+  function apply(){
+    meshes.forEach(function(m,i){
+      m.material = materials[i][mode];
+      m.visible = (solo<0 || solo===i);
+    });
+    document.getElementById('modeNote').textContent = ({
+      textured:'白色装甲 · 橙色饰条 · 蓝色推进束，按部位分材质',
+      grey:'STL 原始几何 · 单一灰色材质（无贴图对照）',
+      ids:'10 个语义部位各一色，用于核对部位边界'})[mode];
+    Array.prototype.forEach.call(document.querySelectorAll('#modeRow button'),function(b){
+      b.className = b.dataset.mode===mode?'on':'';
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('#viewRow button'),function(b){
+      b.className = (+b.dataset.view===view)?'on':'';
+    });
+  }
+  Array.prototype.forEach.call(document.querySelectorAll('#modeRow button'),function(b){
+    b.onclick=function(){ mode=b.dataset.mode; apply(); };
+  });
+
+  var VIEWS = [
+    [ 95,  62, 118], [0, 165, 0.01], [175, 12, 0], [0, 18, 145], [-95, 62, -118]
+  ];
+  function setView(k){
+    view=k; var v=VIEWS[k];
+    camera.position.set(v[0],v[1],v[2]);
+    camera.up.set(0,1,0);
+    camera.lookAt(0,0,0);
+    apply();
+  }
+  Array.prototype.forEach.call(document.querySelectorAll('#viewRow button'),function(b){
+    b.onclick=function(){ setView(+b.dataset.view); };
+  });
+
+  // simple orbit
+  var dragging=false, px=0, py=0, yaw=0, pitch=0;
+  renderer.domElement.addEventListener('mousedown',function(e){dragging=true;px=e.clientX;py=e.clientY;});
+  window.addEventListener('mouseup',function(){dragging=false;});
+  window.addEventListener('mousemove',function(e){
+    if(!dragging) return;
+    yaw += (e.clientX-px)*0.006; pitch += (e.clientY-py)*0.006; px=e.clientX; py=e.clientY;
+    pitch=Math.max(-1.35,Math.min(1.35,pitch));
+  });
+  renderer.domElement.addEventListener('wheel',function(e){
+    e.preventDefault(); var s=1+Math.sign(e.deltaY)*0.08;
+    camera.position.multiplyScalar(s);
+  },{passive:false});
+
+  STAGE='view';
+  setView(view);
+  STAGE='frame';
+  function frame(){
+    requestAnimationFrame(frame);
+    if(dragging){
+      var r=camera.position.length(), cp=Math.cos(pitch);
+      camera.position.set(r*cp*Math.sin(yaw), r*Math.sin(pitch), r*cp*Math.cos(yaw));
+      camera.lookAt(0,0,0);
+    }
+    renderer.render(scene,camera);
+  }
+  frame();
+
+  window.__PREVIEW_OK__ = {
+    parts: meshes.length, tris: S.parts.reduce(function(a,p){return a+p.tris;},0),
+    mode: mode, view: view, solo: solo,
+    atlasSize: S.atlas.size, maps:Object.keys(S.textures).length,
+    flipY:false
+  };
+  diag.textContent = 'PREVIEW_OK ' + JSON.stringify(window.__PREVIEW_OK__);
+ }catch(e){
+  diag.textContent = 'THROW@' + STAGE + ' :: ' + e.message + ' :: ' + String(e.stack||'').slice(0,500);
+ }
+})();
+</script>
+</body>
+</html>

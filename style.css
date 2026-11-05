@@ -1,0 +1,337 @@
+/* 自然选择号 · 深空航行模拟 —— HUD 与视觉层 */
+:root{
+  --cyan:#8ef2ff;
+  --cyan-dim:#4f93a8;
+  --ink:#030912;
+  --panel:rgba(4,16,28,.55);
+  --line:rgba(142,242,255,.22);
+  --amber:#ffc978;
+  --red:#ff6b7d;
+  --mono:"Consolas","SFMono-Regular","Roboto Mono","Courier New",monospace;
+  --sans:"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:100%;height:100%;overflow:hidden;background:#01050c;color:#dff6ff;font-family:var(--sans)}
+body{user-select:none;-webkit-user-select:none;cursor:crosshair}
+button{font-family:inherit;cursor:pointer}
+.hidden{display:none !important}
+
+#viewport{position:fixed;inset:0;z-index:0}
+#viewport canvas{display:block;width:100%;height:100%}
+
+/* ---------- 跃迁视觉层 ---------- */
+#fx-lines{
+  position:fixed;inset:-50%;z-index:1;pointer-events:none;opacity:0;
+  background:repeating-conic-gradient(from 0deg at 50% 50%,
+    rgba(0,0,0,0) 0deg 1.05deg,
+    rgba(150,225,255,.55) 1.15deg 1.32deg,
+    rgba(0,0,0,0) 1.42deg 2.6deg);
+  -webkit-mask-image:radial-gradient(circle at 50% 50%,transparent 0%,transparent 18%,rgba(0,0,0,.35) 42%,#000 78%);
+  mask-image:radial-gradient(circle at 50% 50%,transparent 0%,transparent 18%,rgba(0,0,0,.35) 42%,#000 78%);
+  mix-blend-mode:screen;transform:scale(1);
+}
+@keyframes warpSpin{from{transform:rotate(0deg) scale(1)}to{transform:rotate(360deg) scale(1)}}
+#fx-glow{
+  position:fixed;inset:0;z-index:2;pointer-events:none;opacity:0;
+  background:
+    radial-gradient(ellipse 65% 45% at 50% 50%,rgba(120,200,255,.12),transparent 70%),
+    radial-gradient(ellipse 90% 70% at 50% 50%,transparent 45%,rgba(40,130,255,.22) 100%);
+  mix-blend-mode:screen;
+}
+#vignette{
+  position:fixed;inset:0;z-index:2;pointer-events:none;
+  background:radial-gradient(ellipse 78% 78% at 50% 50%,transparent 42%,rgba(0,3,10,.55) 100%);
+}
+#scanlines{
+  position:fixed;inset:0;z-index:3;pointer-events:none;opacity:.05;
+  background:repeating-linear-gradient(to bottom,rgba(140,220,255,.14) 0 1px,transparent 1px 3px);
+}
+#flash{position:fixed;inset:0;z-index:6;pointer-events:none;background:#bfefff;opacity:0;mix-blend-mode:screen}
+
+/* ---------- HUD ---------- */
+#hud{position:fixed;inset:0;z-index:5;pointer-events:none}
+.panel{
+  position:absolute;background:var(--panel);border:1px solid var(--line);
+  -webkit-backdrop-filter:blur(9px);backdrop-filter:blur(9px);
+  padding:13px 16px;font-size:12px;letter-spacing:.4px;
+  box-shadow:0 0 24px rgba(0,0,0,.35),inset 0 0 30px rgba(40,140,190,.06);
+}
+.eyebrow{font-family:var(--mono);font-size:10px;color:var(--cyan-dim);letter-spacing:2px;margin-bottom:9px;text-transform:uppercase}
+.corner{position:absolute;width:9px;height:9px;border-color:var(--cyan);border-style:solid;opacity:.85}
+.corner.tl{top:-1px;left:-1px;border-width:2px 0 0 2px}
+.corner.tr{top:-1px;right:-1px;border-width:2px 2px 0 0}
+.corner.bl{bottom:-1px;left:-1px;border-width:0 0 2px 2px}
+.corner.br{bottom:-1px;right:-1px;border-width:0 2px 2px 0}
+.divider{height:1px;background:linear-gradient(90deg,var(--line),transparent);margin:9px 0}
+.kv{display:flex;justify-content:space-between;gap:18px;line-height:1.9;color:#8fb6c6;font-size:11px}
+.kv b{font-family:var(--mono);font-weight:500;color:#dff6ff;white-space:nowrap}
+.kv b.ok{color:#8ef2c9}
+
+.ship-info{top:22px;left:24px;width:252px}
+.ship-info h1{font-size:27px;font-weight:600;letter-spacing:5px;color:#fff;text-shadow:0 0 18px rgba(142,242,255,.5);line-height:1.25}
+.ship-info .sub{font-family:var(--mono);font-size:10px;letter-spacing:3.4px;color:var(--cyan);margin-top:3px}
+
+.nav-data{top:22px;right:24px;width:230px}
+.nav-data .kv b{color:var(--cyan)}
+
+.radar-panel{left:24px;bottom:104px;width:212px;padding:12px}
+.radar-panel canvas{display:block;width:180px;height:180px;margin:0 auto}
+.radar-legend{display:flex;align-items:center;gap:6px;font-size:10px;color:#7fa8b8;margin-top:6px;font-family:var(--mono)}
+.radar-legend .dot{width:6px;height:6px;border-radius:50%;display:inline-block}
+.radar-legend .flagship{background:#8ef2ff;box-shadow:0 0 7px #8ef2ff}
+.radar-legend .wing{background:#4f93a8;margin-left:8px}
+#radar-label{margin-left:auto;color:var(--cyan-dim)}
+
+.drive-panel{right:24px;bottom:104px;width:264px;padding:14px 16px 13px}
+.gear-display{display:flex;align-items:baseline;gap:10px}
+.gear-name{font-size:22px;font-weight:600;letter-spacing:3px;color:#fff;text-shadow:0 0 16px rgba(142,242,255,.45)}
+.gear-en{font-family:var(--mono);font-size:10px;letter-spacing:1.6px;color:var(--cyan-dim)}
+.speed-big{margin:4px 0 10px;font-family:var(--mono);font-size:36px;line-height:1;color:var(--cyan);text-shadow:0 0 20px rgba(80,210,255,.5)}
+.speed-big em{font-style:normal;font-size:14px;color:#6fa9bd;margin-left:6px}
+.speed-track{position:relative;height:7px;background:rgba(120,190,220,.13);border:1px solid rgba(142,242,255,.18);overflow:visible}
+.speed-fill{height:100%;width:0%;background:linear-gradient(90deg,#2c86c9,#8ef2ff);box-shadow:0 0 12px rgba(142,242,255,.7);transition:width .08s linear}
+.tick{position:absolute;top:-3px;width:1px;height:13px;background:rgba(142,242,255,.35)}
+.warp-mark{position:absolute;right:0;top:-19px;font-family:var(--mono);font-size:9px;color:var(--amber);letter-spacing:.5px}
+.engine-state{display:flex;align-items:center;gap:8px;margin-top:11px;font-family:var(--mono);font-size:10px;color:#9fc4d2}
+.led{width:7px;height:7px;border-radius:50%;background:#456;box-shadow:0 0 0 rgba(0,0,0,0);transition:background .3s,box-shadow .3s}
+.led.on{background:#8ef2c9;box-shadow:0 0 10px #8ef2c9}
+.led.warp{background:#8ef2ff;box-shadow:0 0 14px #8ef2ff}
+
+/* 档位按钮 */
+.gearbar{
+  position:absolute;left:50%;bottom:52px;transform:translateX(-50%);
+  display:flex;gap:6px;pointer-events:auto;
+}
+.gearbtn{
+  min-width:78px;padding:9px 12px 8px;background:rgba(4,18,30,.72);
+  border:1px solid rgba(142,242,255,.25);color:#bfe4f0;text-align:center;
+  -webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);
+  transition:all .18s ease;position:relative;overflow:hidden;
+}
+.gearbtn .num{display:block;font-family:var(--mono);font-size:16px;line-height:1.1;color:var(--cyan)}
+.gearbtn .lbl{display:block;font-size:10px;letter-spacing:1px;margin-top:3px;white-space:nowrap}
+.gearbtn:hover{border-color:var(--cyan);background:rgba(20,70,100,.8);transform:translateY(-2px)}
+.gearbtn.active{background:rgba(30,120,160,.55);border-color:var(--cyan);box-shadow:0 0 20px rgba(90,220,255,.35),inset 0 0 18px rgba(120,230,255,.14)}
+.gearbtn.active .num{color:#fff;text-shadow:0 0 12px #8ef2ff}
+.gearbtn.warp{min-width:116px;border-color:rgba(255,201,120,.45)}
+.gearbtn.warp .num{color:var(--amber)}
+.gearbtn.warp.active{background:rgba(150,60,40,.45);border-color:var(--amber);box-shadow:0 0 26px rgba(255,140,90,.5)}
+.gearbtn.warp.active .num{color:#fff;text-shadow:0 0 12px var(--amber)}
+
+.hintbar{
+  position:absolute;left:50%;bottom:18px;transform:translateX(-50%);
+  display:flex;gap:16px;white-space:nowrap;font-size:10px;color:#779cab;
+  font-family:var(--mono);letter-spacing:.3px;
+}
+kbd{
+  display:inline-block;min-width:15px;padding:1px 4px;margin:0 1px;border:1px solid rgba(142,242,255,.3);
+  border-radius:2px;background:rgba(10,35,50,.7);color:var(--cyan);font-family:var(--mono);font-size:10px;text-align:center;
+}
+.hintbar b{color:#a9d6e5;font-weight:500}
+
+/* 中央准星 */
+#reticle{position:absolute;left:50%;top:50%;width:44px;height:44px;transform:translate(-50%,-50%);opacity:.5}
+#reticle i{position:absolute;background:rgba(142,242,255,.7)}
+#reticle i:nth-child(1){left:0;top:50%;width:11px;height:1px}
+#reticle i:nth-child(2){right:0;top:50%;width:11px;height:1px}
+#reticle i:nth-child(3){top:0;left:50%;width:1px;height:11px}
+#reticle i:nth-child(4){bottom:0;left:50%;width:1px;height:11px}
+#reticle span{position:absolute;left:50%;top:50%;width:3px;height:3px;transform:translate(-50%,-50%);background:var(--cyan);border-radius:50%}
+
+/* 档位提示 */
+#toast{position:absolute;left:50%;top:31%;transform:translate(-50%,-50%) scale(.9);text-align:center;opacity:0;pointer-events:none}
+#toast.show{animation:toastPop 1.5s ease-out forwards}
+@keyframes toastPop{
+  0%{opacity:0;transform:translate(-50%,-50%) scale(.86);letter-spacing:0}
+  15%{opacity:1;transform:translate(-50%,-50%) scale(1.04)}
+  70%{opacity:1;transform:translate(-50%,-50%) scale(1)}
+  100%{opacity:0;transform:translate(-50%,-50%) scale(1.06)}
+}
+.toast-main{font-size:42px;font-weight:600;letter-spacing:12px;color:#fff;text-shadow:0 0 28px rgba(142,242,255,.8)}
+.toast-sub{font-family:var(--mono);font-size:12px;letter-spacing:7px;color:var(--cyan);margin-top:6px}
+#toast.warp-toast .toast-main{color:#fff2d8;text-shadow:0 0 32px rgba(255,180,100,.9)}
+#toast.warp-toast .toast-sub{color:var(--amber)}
+
+#warp-banner{
+  position:absolute;left:50%;top:14%;transform:translateX(-50%);text-align:center;
+  opacity:0;transition:opacity .5s ease;min-width:420px;
+}
+#warp-banner.show{opacity:1;animation:bannerPulse 2.4s ease-in-out infinite}
+@keyframes bannerPulse{0%,100%{filter:brightness(1)}50%{filter:brightness(1.45)}}
+.warp-title{font-size:19px;letter-spacing:9px;color:#ffd7a8;text-shadow:0 0 22px rgba(255,150,80,.8)}
+.warp-sub{font-family:var(--mono);font-size:11px;letter-spacing:3px;color:#9fe4ff;margin-top:7px}
+.warp-rule{height:1px;margin:12px auto 0;width:70%;background:linear-gradient(90deg,transparent,var(--amber),transparent);box-shadow:0 0 12px var(--amber)}
+
+/* 工具栏 */
+#toolbar{position:fixed;right:24px;top:246px;z-index:7;display:flex;flex-direction:column;gap:7px}
+#toolbar button{
+  width:30px;height:30px;border:1px solid var(--line);background:rgba(4,18,30,.7);color:var(--cyan);
+  font-family:var(--mono);font-size:14px;-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);
+  transition:all .18s;
+}
+#toolbar button:hover{border-color:var(--cyan);box-shadow:0 0 14px rgba(142,242,255,.4)}
+
+/* 开场 / 帮助 */
+#startscreen,#help-panel{position:fixed;inset:0;z-index:10;display:flex;align-items:center;justify-content:center;
+  background:radial-gradient(ellipse at 50% 50%,rgba(2,10,20,.55),rgba(0,3,9,.9));
+  -webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px)}
+.start-card,.help-card{
+  position:relative;width:min(620px,92vw);padding:36px 44px 30px;text-align:center;
+  background:linear-gradient(160deg,rgba(6,24,40,.94),rgba(2,10,20,.96));
+  border:1px solid rgba(142,242,255,.28);box-shadow:0 0 80px rgba(30,130,190,.18),inset 0 0 60px rgba(40,140,190,.06);
+}
+.start-tag{font-family:var(--mono);font-size:10px;letter-spacing:3px;color:var(--cyan-dim)}
+.start-card h2{font-size:52px;font-weight:600;letter-spacing:16px;margin:14px 0 2px;color:#fff;text-shadow:0 0 40px rgba(142,242,255,.55)}
+.start-en{font-family:var(--mono);font-size:11px;letter-spacing:5px;color:var(--cyan)}
+.quote{margin:24px 0 10px;font-size:16px;letter-spacing:4px;color:#cbeaf6}
+.start-desc{font-size:13px;line-height:2;color:#93b8c8}
+.start-desc b{color:var(--amber);font-family:var(--mono)}
+.start-keys{margin:24px auto 26px;padding:14px 10px;border-top:1px solid rgba(142,242,255,.14);border-bottom:1px solid rgba(142,242,255,.14);
+  font-size:11px;line-height:2.3;color:#8ab0c0}
+#btn-start,#btn-help-close{
+  padding:12px 40px;background:linear-gradient(180deg,rgba(30,120,160,.6),rgba(12,60,90,.6));
+  border:1px solid var(--cyan);color:#eaffff;font-size:14px;letter-spacing:6px;
+  box-shadow:0 0 24px rgba(90,220,255,.25);transition:all .2s;
+}
+#btn-start:hover,#btn-help-close:hover{background:rgba(60,180,220,.65);box-shadow:0 0 34px rgba(120,235,255,.55)}
+.start-foot{margin-top:20px;font-size:10px;color:#4d7182;font-family:var(--mono)}
+.help-card{text-align:left;width:min(560px,92vw)}
+.help-card h3{font-size:20px;letter-spacing:4px;margin-bottom:16px;color:#fff}
+.help-card table{width:100%;border-collapse:collapse;font-size:12px;color:#a8cbd8}
+.help-card td{padding:8px 6px;border-bottom:1px solid rgba(142,242,255,.1);line-height:1.6}
+.help-card td:first-child{width:44%;color:var(--cyan);font-family:var(--mono);font-size:11px}
+.help-note{margin:18px 0 22px;font-size:11px;line-height:1.9;color:#7ea5b5}
+#btn-help-close{width:100%;letter-spacing:4px}
+#paused-tag{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:9;font-size:22px;letter-spacing:8px;
+  color:var(--cyan);text-shadow:0 0 24px rgba(142,242,255,.7);pointer-events:none}
+#error-box{position:fixed;inset:0;z-index:20;display:flex;align-items:center;justify-content:center;
+  background:#02070f;color:#ff9aa8;font-family:var(--mono);font-size:14px;text-align:center;padding:40px;line-height:2}
+
+@media (max-width:1000px){
+  .ship-info{width:210px}.nav-data{width:190px}.drive-panel{width:220px}
+  .hintbar{gap:8px;font-size:9px}.radar-panel{transform:scale(.85);transform-origin:bottom left}
+  .gearbtn{min-width:62px;padding:7px 7px 6px}.gearbtn.warp{min-width:96px}
+}
+@media (max-width:680px){
+  .nav-data,.radar-panel,.hintbar{display:none}
+  .ship-info{top:12px;left:12px;width:190px;padding:9px 12px}
+  .ship-info h1{font-size:21px}
+  .drive-panel{right:12px;bottom:96px;width:190px;padding:10px}
+  .speed-big{font-size:26px}
+  .gearbar{bottom:44px;gap:3px}
+  .gearbtn{min-width:52px;padding:6px 4px}.gearbtn .lbl{font-size:8px}.gearbtn.warp{min-width:78px}
+  .toolbar,#toolbar{right:12px;top:170px}
+}
+
+/* ================= 触屏手势与小屏适配 ================= */
+#viewport canvas{touch-action:none;-webkit-touch-callout:none}
+
+/* 折叠后的图标坞：默认隐藏，仅小屏 / 手动折叠时出现 */
+#panel-dock{position:fixed;left:12px;top:12px;z-index:8;display:none;flex-direction:row;gap:4px;pointer-events:auto}
+body.compact #panel-dock{display:flex}
+.dock-btn{
+  width:38px;height:42px;padding:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  border:1px solid var(--line);background:rgba(4,18,30,.82);color:var(--cyan);
+  -webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);transition:all .18s;
+}
+.dock-btn i{font-style:normal;font-family:var(--mono);font-size:15px;line-height:1.15}
+.dock-btn small{font-size:8px;letter-spacing:0;color:#9fc4d2;line-height:1.2}
+.dock-btn:hover{border-color:var(--cyan);box-shadow:0 0 14px rgba(142,242,255,.4)}
+.dock-btn.active{border-color:var(--cyan);background:rgba(30,120,160,.7);box-shadow:0 0 16px rgba(90,220,255,.4)}
+.dock-btn.active small{color:#eaffff}
+
+/* 视角状态胶囊：仅在缩放 / 环绕偏离默认值时出现，点击即复位；文案变长后不换行 */
+#view-chip{
+  position:fixed;left:24px;bottom:22px;z-index:8;padding:6px 11px;
+  border:1px solid rgba(142,242,255,.35);background:rgba(4,18,30,.82);color:var(--cyan);
+  font-family:var(--mono);font-size:10px;letter-spacing:1px;-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);
+  white-space:nowrap;max-width:calc(100vw - 24px);overflow:hidden;text-overflow:ellipsis;
+}
+#view-chip:hover{border-color:var(--cyan);box-shadow:0 0 14px rgba(142,242,255,.4)}
+body.compact #view-chip{left:12px;bottom:72px}
+#toolbar button.active{border-color:var(--cyan);background:rgba(30,120,160,.6)}
+
+/* 小屏：四个数据面板与键位条默认全部收成图标，点图标才临时展开一个 */
+body.compact .panel{display:none}
+body.compact .panel.open{
+  display:block;position:fixed;top:58px;left:12px;right:auto;bottom:auto;
+  width:min(272px,calc(100vw - 24px));max-height:calc(100vh - 150px);overflow:auto;
+  transform:none;z-index:9;pointer-events:auto;padding:11px 13px;font-size:11px;
+  -webkit-overflow-scrolling:touch;
+}
+body.compact .nav-data.open,body.compact .drive-panel.open{left:auto;right:12px}
+body.compact .radar-panel.open canvas{width:160px;height:160px}
+body.compact .hintbar{display:none}
+body.compact .hintbar.open{
+  display:flex;position:fixed;top:58px;left:12px;right:12px;bottom:auto;transform:none;
+  flex-direction:column;gap:6px;white-space:normal;z-index:9;max-width:320px;
+  padding:12px 14px;background:var(--panel);border:1px solid var(--line);
+  -webkit-backdrop-filter:blur(9px);backdrop-filter:blur(9px);font-size:10px;color:#a8cbd8;
+  pointer-events:auto;
+}
+/* 手动展开后要抵消旧 @media 里对这几块的 display:none */
+body.full-hud .nav-data,body.full-hud .radar-panel{display:block !important}
+body.full-hud .hintbar{display:flex !important}
+
+body.compact #toolbar{right:12px;top:12px;flex-direction:row;gap:4px;z-index:8}
+body.compact #toolbar button{width:38px;height:42px;font-size:15px}
+body.compact #btn-lock{display:none}            /* 触屏没有指针锁定意义 */
+
+body.compact .gearbar{
+  bottom:14px;gap:4px;max-width:calc(100vw - 16px);overflow-x:auto;overflow-y:hidden;
+  white-space:nowrap;justify-content:flex-start;padding:2px;-webkit-overflow-scrolling:touch;scrollbar-width:none;
+}
+body.compact .gearbar::-webkit-scrollbar{display:none}
+body.compact .gearbtn{flex:0 0 auto;min-width:48px;min-height:42px;padding:7px 5px 6px}
+body.compact .gearbtn .num{font-size:14px}
+body.compact .gearbtn .lbl{font-size:8px}
+body.compact .gearbtn.warp{min-width:84px}
+
+/* 窄屏 / 矮屏的文案与弹层收紧，避免开场卡与跃迁横幅溢出 */
+@media (max-width:760px){
+  body.full-hud .hintbar{flex-wrap:wrap;gap:6px;white-space:normal;max-width:calc(100vw - 24px);bottom:64px}
+  .start-card{width:min(620px,94vw);padding:22px 18px 18px;max-height:92vh;overflow:auto}
+  .start-card h2{font-size:30px;letter-spacing:7px;margin:10px 0 2px}
+  .start-en{font-size:9px;letter-spacing:2.5px}
+  .quote{font-size:13px;letter-spacing:2px;margin:14px 0 8px}
+  .start-desc{font-size:11px;line-height:1.8}
+  .start-desc br{display:none}
+  .start-keys{margin:14px auto 16px;padding:10px 6px;font-size:10px;line-height:1.9}
+  #btn-start,#btn-help-close{width:100%;padding:11px 18px;font-size:13px;letter-spacing:3px}
+  .start-foot{margin-top:12px;font-size:9px}
+  .help-card{width:94vw;padding:20px 16px;max-height:90vh;overflow:auto}
+  .help-card h3{font-size:17px;letter-spacing:2px}
+  .help-card table{font-size:10px}
+  .help-card td{padding:6px 4px}
+  .help-card td:first-child{width:42%;font-size:10px}
+  #warp-banner{min-width:0;width:88vw;top:10%}
+  .warp-title{font-size:14px;letter-spacing:4px}
+  .warp-sub{font-size:9px;letter-spacing:1px}
+  .toast-main{font-size:26px;letter-spacing:6px}
+  .toast-sub{font-size:10px;letter-spacing:3px}
+  #paused-tag{font-size:16px;letter-spacing:4px}
+  #reticle{transform:translate(-50%,-50%) scale(.8)}
+}
+/* 390px 级别：缩到 32px 图标，左上角图标坞与右上角工具条才不会横向相撞 */
+@media (max-width:430px){
+  body.compact #toolbar button,body.compact .dock-btn{width:32px;height:38px}
+  body.compact .dock-btn small{font-size:7px}
+  body.compact .gearbtn{min-width:44px}
+  body.compact .gearbtn.warp{min-width:76px}
+}
+@media (max-height:460px){
+  body.compact .panel.open,body.compact .hintbar.open{max-height:calc(100vh - 80px);top:56px}
+  .start-card{max-height:96vh}
+}
+/* 320px 级别：工具条整体下移一行，展开的面板跟着下移，绝不互相压住 */
+@media (max-width:360px){
+  body.compact #toolbar{top:56px}
+  body.compact .panel.open,body.compact .hintbar.open{top:104px;max-height:calc(100vh - 190px)}
+}
+/* 触摸目标下限：flex 默认会收缩把按钮压回 30px，这里显式锁定尺寸 */
+html body.compact #toolbar > button,
+html body.compact #panel-dock > button{flex:0 0 auto}
+html body.compact #toolbar > button{width:38px;min-width:38px;height:42px;min-height:42px}
+@media (max-width:430px){
+  html body.compact #toolbar > button{width:32px;min-width:32px;height:38px;min-height:38px}
+}

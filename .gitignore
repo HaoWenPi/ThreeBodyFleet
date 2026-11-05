@@ -21,3 +21,14 @@
 
 # virtual machine crash logs, see http://www.java.com/en/download/help/error_hotspot.xml
 hs_err_pid*
+
+# 项目本地工作数据（含本机路径与内部约定，不入库）
+.workbuddy/
+
+# 本地临时与派生文件
+__pycache__/
+*.py[cod]
+.DS_Store
+Thumbs.db
+*.tmp
+wb_*/

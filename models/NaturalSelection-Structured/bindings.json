@@ -1,0 +1,369 @@
+{
+  "version": "1.0.0",
+  "summary": {
+    "parts": 10,
+    "atlasSlots": 10,
+    "designRefs": 5,
+    "textureMaps": 4,
+    "sourcePbrMaps": 3,
+    "missing": 0,
+    "misplaced": 0,
+    "duplicated": 0
+  },
+  "textureBindings": [
+    {
+      "part": "engine_pods",
+      "slot": 0,
+      "atlasRectPx": [
+        0,
+        0,
+        512,
+        512
+      ],
+      "uvRect": [
+        0.0,
+        0.0,
+        0.25,
+        0.25
+      ],
+      "maps": {
+        "basecolor": "textures/atlas_basecolor.png",
+        "normal": "textures/atlas_normal.png",
+        "metallicRoughness": "textures/atlas_mr.png",
+        "emissive": "textures/atlas_emissive.png"
+      }
+    },
+    {
+      "part": "aft_booms",
+      "slot": 1,
+      "atlasRectPx": [
+        512,
+        0,
+        1024,
+        512
+      ],
+      "uvRect": [
+        0.25,
+        0.0,
+        0.5,
+        0.25
+      ],
+      "maps": {
+        "basecolor": "textures/atlas_basecolor.png",
+        "normal": "textures/atlas_normal.png",
+        "metallicRoughness": "textures/atlas_mr.png",
+        "emissive": "textures/atlas_emissive.png"
+      }
+    },
+    {
+      "part": "nose_cone",
+      "slot": 2,
+      "atlasRectPx": [
+        1024,
+        0,
+        1536,
+        512
+      ],
+      "uvRect": [
+        0.5,
+        0.0,
+        0.75,
+        0.25
+      ],
+      "maps": {
+        "basecolor": "textures/atlas_basecolor.png",
+        "normal": "textures/atlas_normal.png",
+        "metallicRoughness": "textures/atlas_mr.png",
+        "emissive": "textures/atlas_emissive.png"
+      }
+    },
+    {
+      "part": "forward_hull",
+      "slot": 3,
+      "atlasRectPx": [
+        1536,
+        0,
+        2048,
+        512
+      ],
+      "uvRect": [
+        0.75,
+        0.0,
+        1.0,
+        0.25
+      ],
+      "maps": {
+        "basecolor": "textures/atlas_basecolor.png",
+        "normal": "textures/atlas_normal.png",
+        "metallicRoughness": "textures/atlas_mr.png",
+        "emissive": "textures/atlas_emissive.png"
+      }
+    },
+    {
+      "part": "waist",
+      "slot": 4,
+      "atlasRectPx": [
+        0,
+        512,
+        512,
+        1024
+      ],
+      "uvRect": [
+        0.0,
+        0.25,
+        0.25,
+        0.5
+      ],
+      "maps": {
+        "basecolor": "textures/atlas_basecolor.png",
+        "normal": "textures/atlas_normal.png",
+        "metallicRoughness": "textures/atlas_mr.png",
+        "emissive": "textures/atlas_emissive.png"
+      }
+    },
+    {
+      "part": "radiator_fins",
+      "slot": 5,
+      "atlasRectPx": [
+        512,
+        512,
+        1024,
+        1024
+      ],
+      "uvRect": [
+        0.25,
+        0.25,
+        0.5,
+        0.5
+      ],
+      "maps": {
+        "basecolor": "textures/atlas_basecolor.png",
+        "normal": "textures/atlas_normal.png",
+        "metallicRoughness": "textures/atlas_mr.png",
+        "emissive": "textures/atlas_emissive.png"
+      }
+    },
+    {
+      "part": "ring_outer",
+      "slot": 6,
+      "atlasRectPx": [
+        1024,
+        512,
+        1536,
+        1024
+      ],
+      "uvRect": [
+        0.5,
+        0.25,
+        0.75,
+        0.5
+      ],
+      "maps": {
+        "basecolor": "textures/atlas_basecolor.png",
+        "normal": "textures/atlas_normal.png",
+        "metallicRoughness": "textures/atlas_mr.png",
+        "emissive": "textures/atlas_emissive.png"
+      }
+    },
+    {
+      "part": "ring_frame",
+      "slot": 7,
+      "atlasRectPx": [
+        1536,
+        512,
+        2048,
+        1024
+      ],
+      "uvRect": [
+        0.75,
+        0.25,
+        1.0,
+        0.5
+      ],
+      "maps": {
+        "basecolor": "textures/atlas_basecolor.png",
+        "normal": "textures/atlas_normal.png",
+        "metallicRoughness": "textures/atlas_mr.png",
+        "emissive": "textures/atlas_emissive.png"
+      }
+    },
+    {
+      "part": "bridge_deck",
+      "slot": 8,
+      "atlasRectPx": [
+        0,
+        1024,
+        512,
+        1536
+      ],
+      "uvRect": [
+        0.0,
+        0.5,
+        0.25,
+        0.75
+      ],
+      "maps": {
+        "basecolor": "textures/atlas_basecolor.png",
+        "normal": "textures/atlas_normal.png",
+        "metallicRoughness": "textures/atlas_mr.png",
+        "emissive": "textures/atlas_emissive.png"
+      }
+    },
+    {
+      "part": "hub_core",
+      "slot": 9,
+      "atlasRectPx": [
+        512,
+        1024,
+        1024,
+        1536
+      ],
+      "uvRect": [
+        0.25,
+        0.5,
+        0.5,
+        0.75
+      ],
+      "maps": {
+        "basecolor": "textures/atlas_basecolor.png",
+        "normal": "textures/atlas_normal.png",
+        "metallicRoughness": "textures/atlas_mr.png",
+        "emissive": "textures/atlas_emissive.png"
+      }
+    }
+  ],
+  "designRefBindings": [
+    {
+      "id": "ref_01",
+      "file": "design-refs/ref_01.png",
+      "source": "ScreenShot_2026-11-04_221706_400_抠图 - 复制.png",
+      "view": "左舷侧视长条",
+      "size": [
+        1730,
+        555
+      ],
+      "sha256": "c788f20d3376a635",
+      "boundParts": [
+        "forward_hull",
+        "waist",
+        "ring_outer",
+        "nose_cone"
+      ],
+      "designNotes": "确定舰体白/灰比例、橙色纵饰条走向、舰腹深灰机械带"
+    },
+    {
+      "id": "ref_02",
+      "file": "design-refs/ref_02.png",
+      "source": "ScreenShot_2026-11-04_221621_470_抠图.png",
+      "view": "斜后 3/4 俯视",
+      "size": [
+        1710,
+        1024
+      ],
+      "sha256": "c31fc610a60d2d75",
+      "boundParts": [
+        "ring_outer",
+        "ring_frame",
+        "engine_pods",
+        "aft_booms"
+      ],
+      "designNotes": "确定圆环分段、蓝色推进束与双叉结构、橙蓝配色位置"
+    },
+    {
+      "id": "ref_03",
+      "file": "design-refs/ref_03.png",
+      "source": "ScreenShot_2026-11-04_221653_579_抠图 - 复制.png",
+      "view": "斜前 3/4 俯视",
+      "size": [
+        1662,
+        1080
+      ],
+      "sha256": "e5173741349107f1",
+      "boundParts": [
+        "nose_cone",
+        "forward_hull",
+        "ring_frame",
+        "waist"
+      ],
+      "designNotes": "确定舰首橙色中线、前段装甲板分界与舷侧标记"
+    },
+    {
+      "id": "ref_04",
+      "file": "design-refs/ref_04.png",
+      "source": "ScreenShot_2026-11-04_221721_663_抠图_多角度_抠图.png",
+      "view": "正俯视总图",
+      "size": [
+        2656,
+        1728
+      ],
+      "sha256": "30b9ddd84488179f",
+      "boundParts": [
+        "ring_outer",
+        "hub_core",
+        "nose_cone",
+        "aft_booms",
+        "radiator_fins"
+      ],
+      "designNotes": "确定全舰平面轮廓、圆环直径/舰长比例、双叉对称性"
+    },
+    {
+      "id": "ref_05",
+      "file": "design-refs/ref_05.png",
+      "source": "ScreenShot_2026-11-04_221737_303_智能超清+2k_抠图-Lite.png",
+      "view": "舰桥局部放大",
+      "size": [
+        1080,
+        2624
+      ],
+      "sha256": "6e1425ff469783d6",
+      "boundParts": [
+        "bridge_deck",
+        "radiator_fins",
+        "hub_core"
+      ],
+      "designNotes": "确定舷窗蓝色圆阵、散热片细密平行线、深灰机械细节"
+    }
+  ],
+  "sourcePbrTextures": [
+    {
+      "name": "baseColor",
+      "file": "textures/source/source_baseColor.png",
+      "size": [
+        4096,
+        4096
+      ],
+      "bytes": 22118330,
+      "sha256": "f529218047e17052",
+      "usage": "traceable detail source; no UV on STL, not projected directly"
+    },
+    {
+      "name": "normal",
+      "file": "textures/source/source_normal.png",
+      "size": [
+        4096,
+        4096
+      ],
+      "bytes": 9669301,
+      "sha256": "3742359719639129",
+      "usage": "traceable detail source; no UV on STL, not projected directly"
+    },
+    {
+      "name": "metallicRoughness",
+      "file": "textures/source/source_metallicRoughness.png",
+      "size": [
+        4096,
+        4096
+      ],
+      "bytes": 7990829,
+      "sha256": "7dc959b8c3e4970f",
+      "usage": "traceable detail source; no UV on STL, not projected directly"
+    }
+  ],
+  "invariants": [
+    "each triangle belongs to exactly one part (partition is exhaustive and disjoint)",
+    "each part owns exactly one atlas slot; no two parts share a slot",
+    "every UV coordinate lies inside its own slot with 10px bleeding guard",
+    "every one of the 5 supplied design images is bound exactly once by id",
+    "every part is covered by at least one design image"
+  ]
+}

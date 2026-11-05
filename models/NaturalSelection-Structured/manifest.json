@@ -1,0 +1,317 @@
+{
+  "version": "1.0.0",
+  "generatedAt": "2026-11-05 09:02:56",
+  "source": {
+    "stl": "Natural Selection-Full.stl",
+    "sha256": "7cebc6eae9f671dc",
+    "triangles": 60382,
+    "weldedVertices": 29935,
+    "connectedComponents": 3,
+    "componentFaces": [
+      57794,
+      1294,
+      1294
+    ]
+  },
+  "frame": {
+    "center": [
+      19.074996948242188,
+      42.96099853515625,
+      88.02200317382812
+    ],
+    "scale": 0.4317102386883495,
+    "source_bounds": [
+      [
+        0.0,
+        0.0,
+        0.0
+      ],
+      [
+        38.149993896484375,
+        85.9219970703125,
+        176.04400634765625
+      ]
+    ],
+    "mapping": "Three(tx,ty,tz) = (STL_y, STL_x, -STL_z), origin at bbox centre"
+  },
+  "atlas": {
+    "size": 2048,
+    "slot": 512,
+    "layout": "10 slots, one per part",
+    "maps": [
+      "atlas_basecolor.png",
+      "atlas_normal.png",
+      "atlas_mr.png",
+      "atlas_emissive.png"
+    ]
+  },
+  "parts": [
+    {
+      "id": "engine_pods",
+      "name": "引擎喷口模块",
+      "slot": 0,
+      "triangles": 2588,
+      "bounds": [
+        [
+          -4.874440463127166,
+          4.214787271110371,
+          20.78512275920889
+        ],
+        [
+          4.795866248541676,
+          4.732838240061297,
+          22.699325140718475
+        ]
+      ],
+      "material": {
+        "roughness": 0.34,
+        "metalness": 0.78,
+        "emissiveGain": 1.0
+      },
+      "note": "圆环内两具对称喷口/推进核心"
+    },
+    {
+      "id": "aft_booms",
+      "name": "尾部双叉推进杆",
+      "slot": 1,
+      "triangles": 628,
+      "bounds": [
+        [
+          -7.004501257668658,
+          -1.2541177163996178,
+          28.901279857712687
+        ],
+        [
+          7.003631724106847,
+          4.484079180253128,
+          38.0
+        ]
+      ],
+      "material": {
+        "roughness": 0.3,
+        "metalness": 0.72,
+        "emissiveGain": 0.85
+      },
+      "note": "Z<20 的双叉细杆，蓝色晶体推进束"
+    },
+    {
+      "id": "nose_cone",
+      "name": "舰首锥",
+      "slot": 2,
+      "triangles": 2699,
+      "bounds": [
+        [
+          -4.0714822114859555,
+          -4.251050773063182,
+          -38.0
+        ],
+        [
+          3.9997753358261345,
+          3.8754649733644673,
+          -23.99877058771524
+        ]
+      ],
+      "material": {
+        "roughness": 0.58,
+        "metalness": 0.3,
+        "emissiveGain": 0.0
+      },
+      "note": "Z>145 收尖舰首，橙色中线条"
+    },
+    {
+      "id": "forward_hull",
+      "name": "前段舰体",
+      "slot": 3,
+      "triangles": 8768,
+      "bounds": [
+        [
+          -8.743430046406326,
+          -8.234871485505174,
+          -25.330164805733094
+        ],
+        [
+          8.742567100219983,
+          7.68746717146765,
+          -3.1989481001489093
+        ]
+      ],
+      "material": {
+        "roughness": 0.62,
+        "metalness": 0.34,
+        "emissiveGain": 0.0
+      },
+      "note": "主舰体前段，白装甲板 + 橙色纵饰条"
+    },
+    {
+      "id": "waist",
+      "name": "环—体连接腰段",
+      "slot": 4,
+      "triangles": 3348,
+      "bounds": [
+        [
+          -11.630706357337383,
+          -5.696416467745262,
+          -17.296037000247892
+        ],
+        [
+          11.620341122038065,
+          7.402536832963227,
+          1.9081782266438534
+        ]
+      ],
+      "material": {
+        "roughness": 0.66,
+        "metalness": 0.46,
+        "emissiveGain": 0.0
+      },
+      "note": "圆环与长舰体之间的连接箍"
+    },
+    {
+      "id": "radiator_fins",
+      "name": "散热鳍片",
+      "slot": 5,
+      "triangles": 4664,
+      "bounds": [
+        [
+          -18.54670293190214,
+          -3.1277418650246767,
+          0.15197733942838915
+        ],
+        [
+          18.54670293190214,
+          3.279702736014395,
+          17.846038387063782
+        ]
+      ],
+      "material": {
+        "roughness": 0.7,
+        "metalness": 0.42,
+        "emissiveGain": 0.0
+      },
+      "note": "圆环上下外缘的密集散热片"
+    },
+    {
+      "id": "ring_outer",
+      "name": "环形外圈装甲",
+      "slot": 6,
+      "triangles": 16408,
+      "bounds": [
+        [
+          -17.128967983621703,
+          -7.781577711095046,
+          -11.26763986471611
+        ],
+        [
+          17.12809845005989,
+          7.873099412163415,
+          29.987498548177115
+        ]
+      ],
+      "material": {
+        "roughness": 0.55,
+        "metalness": 0.38,
+        "emissiveGain": 0.0
+      },
+      "note": "大圆环外圈，分段装甲 + 橙色箍带"
+    },
+    {
+      "id": "ring_frame",
+      "name": "环内桁架",
+      "slot": 7,
+      "triangles": 14293,
+      "bounds": [
+        [
+          -14.530070502252709,
+          -7.600256907643262,
+          -10.510421054638812
+        ],
+        [
+          14.592235564546744,
+          8.234871485505174,
+          27.13130476839308
+        ]
+      ],
+      "material": {
+        "roughness": 0.72,
+        "metalness": 0.56,
+        "emissiveGain": 0.0
+      },
+      "note": "圆环内框与斜向桁架"
+    },
+    {
+      "id": "bridge_deck",
+      "name": "舰桥上层甲板",
+      "slot": 8,
+      "triangles": 4025,
+      "bounds": [
+        [
+          -7.829066100845784,
+          2.8048188385070234,
+          2.1810207311640064
+        ],
+        [
+          7.828199860971707,
+          8.234871485505174,
+          18.428026422309706
+        ]
+      ],
+      "material": {
+        "roughness": 0.52,
+        "metalness": 0.32,
+        "emissiveGain": 0.06
+      },
+      "note": "上表面舰桥、舷窗与观测模块"
+    },
+    {
+      "id": "hub_core",
+      "name": "中央轮毂",
+      "slot": 9,
+      "triangles": 2961,
+      "bounds": [
+        [
+          -7.3913119451653,
+          -7.099474743482398,
+          2.1741138679855285
+        ],
+        [
+          8.003476747431357,
+          3.264163117284753,
+          18.428026422309706
+        ]
+      ],
+      "material": {
+        "roughness": 0.74,
+        "metalness": 0.6,
+        "emissiveGain": 0.0
+      },
+      "note": "圆环中央机械核心"
+    }
+  ],
+  "artifacts": {
+    "glb": "ship-structured.glb",
+    "inlineJS": "ship-structured.js",
+    "bindings": "bindings.json",
+    "textures": "textures/",
+    "designRefs": "design-refs/"
+  },
+  "partitionRules": [
+    "independent connected components != largest -> engine_pods",
+    "z < 20 -> aft_booms",
+    "z > 145 -> nose_cone",
+    "z > 112 -> forward_hull",
+    "z > 100 -> waist",
+    "abs(y-43) > 37 and 28 < z < 100 -> radiator_fins",
+    "r = hypot(z-65, y-43) > 33 -> ring_outer",
+    "r > 17 -> ring_frame",
+    "x > 26 -> bridge_deck",
+    "otherwise -> hub_core"
+  ],
+  "verification": {
+    "everyTriangleOnePart": true,
+    "sumPartTriangles": 60382,
+    "sourceTriangles": 60382,
+    "uvConfinedToOwnSlot": true,
+    "atlasSlotUnique": true,
+    "designRefsAllBound": true
+  }
+}
