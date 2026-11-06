@@ -1701,7 +1701,7 @@
   }, true);
 
   /* 程序版本：与 changelog.md / git tag vX.Y.Z 保持一致，每次发版必须同步更新。 */
-  var APP_VERSION = '1.1.0';
+  var APP_VERSION = '1.1.1';
   window.__NS_VERSION__ = APP_VERSION;
 
   window.__NS_VIEW__ = {
@@ -2267,10 +2267,12 @@
     syncCompact();                               // 横竖屏 / 窗口变化即时重排 HUD
   });
 
-  /* ================= 舰队战役 · P0 可玩原型（v1.1.0） =================
-     战斗发生在「以旗舰为原点的局部空间」：敌舰 / 炮塔 / 弹丸都挂在 combat.root 下，
-     root 每帧跟随 ship 的姿态与位置；星场仍按 deltaVec 流动，但战斗态只乘一个视觉
-     系数 combatFlow，敌人不会被背景一起冲走。全部资源程序化生成，零新增文件；
+  /* ================= 舰队战役 · P0 可玩原型（v1.1.1） =================
+     战斗空间 combat.root 在「开战瞬间」锚定一次舰体姿态，之后固定在世界坐标：
+     敌舰 / 弹丸 / 爆炸都是空间里独立存在的实体，旗舰转向或镜头环绕都不会带着它们转。
+     6 座炮塔另挂在 combat.turretRoot 下，每帧跟随舰体，保证炮口与舰体始终贴合；
+     两者之间的坐标用 worldToLocal / localToWorld 转换。星场仍按 deltaVec 流动，
+     战斗态只乘一个视觉系数 combatFlow。全部资源程序化生成，零新增文件；
      全部 UI 由运行时 DOM 创建，index.html 零改动。
      红线：不动四喷口 / 蓝焰 / AHEAD / orbitBy / 开场三体物理 / 手势 / 早绑定进舰桥。 */
   var combat = {
@@ -2278,7 +2280,7 @@
     target: null, order: 'focus', salvoCd: 0, wingCd: 1.6,
     kills: 0, losses: 0, hull: 100, shield: 100,
     wave: 0, waveAt: 0, result: null, log: [], hitFlash: 0,
-    root: null, enemies: [], turrets: [], shots: [], bursts: [], nextId: 1
+    root: null, turretRoot: null, enemies: [], turrets: [], shots: [], bursts: [], nextId: 1
   };
   var COMBAT_MISSION = { name: '接触 · 智子盲区', en: 'CONTACT / SOPHON BLIND ZONE', limit: 150 };
   var COMBAT_WAVES = [
@@ -2336,7 +2338,6 @@
 
   var cTmpA = new THREE.Vector3(), cTmpB = new THREE.Vector3();
   var cTmpC = new THREE.Vector3(), cTmpD = new THREE.Vector3();
-  var cInvQ = new THREE.Quaternion();
   var cGeoProbe = new THREE.OctahedronGeometry(3.4, 0);
   var cGeoRaider = new THREE.ConeGeometry(3.6, 13, 5);
   var cMatProbe = new THREE.MeshStandardMaterial({ color: 0x9fe8ff, emissive: 0x2ba7d8, emissiveIntensity: 1.8, metalness: 0.6, roughness: 0.25 });
@@ -2363,11 +2364,18 @@
     if (flagship.trail) skip.push(flagship.trail);
     var src = ship;
     src.updateWorldMatrix(true, true);
+    // 炮塔挂在 turretRoot（跟随舰体）下，硬点必须是舰体局部坐标；
+    // 逐个网格把世界矩阵左乘舰体世界矩阵的逆，避免舰体姿态被算两次。
+    var toHull = src.matrixWorld.clone().invert();
+    var m = new THREE.Matrix4();
     src.traverse(function (o) {
       if (!o.isMesh || skip.indexOf(o) >= 0) return;
       if (!o.geometry) return;
       if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
-      if (o.geometry.boundingBox) box.union(o.geometry.boundingBox.clone().applyMatrix4(o.matrixWorld));
+      if (o.geometry.boundingBox) {
+        m.multiplyMatrices(toHull, o.matrixWorld);
+        box.union(o.geometry.boundingBox.clone().applyMatrix4(m));
+      }
     });
     if (box.isEmpty()) box.setFromObject(src);
     return box;
@@ -2394,7 +2402,7 @@
       b1.position.set(-0.9, 0, 3.2); b1.rotation.x = Math.PI / 2; g.add(b1);
       var b2 = new THREE.Mesh(cGeoBarrel, cTurretMat);
       b2.position.set(0.9, 0, 3.2); b2.rotation.x = Math.PI / 2; g.add(b2);
-      combat.root.add(g);
+      combat.turretRoot.add(g);
       combat.turrets.push({ group: g });
     });
     window.__NS_TURRETS__ = { count: combat.turrets.length, source: 'hull-bounds', box: [w, h, d].map(function (v) { return +v.toFixed(2); }) };
@@ -2516,7 +2524,8 @@
     if (alive.length && Math.random() < 0.45) {
       var w = alive[Math.floor(Math.random() * alive.length)];
       w.combatHp -= dmg * 1.6;
-      cTmpA.copy(w.pos).applyQuaternion(cInvQ);
+      cTmpA.copy(w.pos);
+      combat.root.worldToLocal(cTmpA);
       combatBurst(cTmpA, 0xff8b6b, 2.2);
       if (w.combatHp <= 0) { w.group.visible = false; combat.losses++; combatLog('僚舰失联 · 舰队 −1'); }
       else combatLog('僚舰受击 · 完整度 ' + Math.round(w.combatHp) + '%');
@@ -2543,11 +2552,13 @@
     var dmg = combat.order === 'focus' ? 12 : 9;
     for (var i = 0; i < combat.turrets.length; i++) {
       var tgt = alive[i % alive.length];
-      cTmpA.copy(combat.turrets[i].group.position);
+      // 炮塔贴舰体（turretRoot），弹丸在锚定的战场空间（root）里飞：
+      // 取炮口世界坐标再转回战场局部，转向时弹道才与画面里的敌舰对齐。
+      combat.turrets[i].group.getWorldPosition(cTmpA);
+      combat.root.worldToLocal(cTmpA);
       cTmpB.copy(tgt.pos);
       combatTakeShot('ally', cTmpA, cTmpB, 260, dmg, tgt);
-      cTmpC.copy(combat.turrets[i].group.position);
-      combatBurst(cTmpC, 0xa9f4ff, 1.0);
+      combatBurst(cTmpA, 0xa9f4ff, 1.0);
     }
     combatLog('主炮齐射 · ' + combat.turrets.length + ' 座 → ' + alive.length + ' 个目标');
     initAudio();
@@ -2567,7 +2578,8 @@
     for (var i = 0; i < wings.length; i++) if (wings[i].combatHp > 0) alive.push(wings[i]);
     if (!alive.length) return;
     var w = alive[Math.floor(Math.random() * alive.length)];
-    cTmpA.copy(w.pos).applyQuaternion(cInvQ);
+    cTmpA.copy(w.pos);
+    combat.root.worldToLocal(cTmpA);
     cTmpB.copy(combat.target.pos);
     combatTakeShot('ally', cTmpA, cTmpB, 240, 4, combat.target);
   }
@@ -2728,12 +2740,23 @@
     combat.enemies.length = 0;
     if (!combat.root) {
       combat.root = new THREE.Group();
-      combat.root.name = 'combat-local-space';
+      combat.root.name = 'combat-world-space';
       scene.add(combat.root);
+      combat.turretRoot = new THREE.Group();
+      combat.turretRoot.name = 'combat-turret-mount';
+      scene.add(combat.turretRoot);
       combatInitPools();
       combatBuildTurrets();
     }
+    // 开战瞬间锚定一次：敌舰从此在空间里独立存在，转视角只会看到它们相对滑动。
+    combat.root.position.copy(ship.position);
+    combat.root.quaternion.copy(ship.quaternion);
+    combat.root.updateWorldMatrix(true, true);
+    combat.turretRoot.position.copy(ship.position);
+    combat.turretRoot.quaternion.copy(ship.quaternion);
+    combat.turretRoot.updateWorldMatrix(true, true);
     combat.root.visible = true;
+    combat.turretRoot.visible = true;
     for (var s = 0; s < combat.shots.length; s++) { combat.shots[s].active = false; combat.shots[s].mesh.visible = false; }
     for (var b = 0; b < combat.bursts.length; b++) { combat.bursts[b].active = false; combat.bursts[b].mesh.visible = false; }
     wings.forEach(function (w) { w.combatHp = 100; w.group.visible = true; });
@@ -2757,6 +2780,7 @@
     for (var s = 0; s < combat.shots.length; s++) { combat.shots[s].active = false; combat.shots[s].mesh.visible = false; }
     for (var b = 0; b < combat.bursts.length; b++) { combat.bursts[b].active = false; combat.bursts[b].mesh.visible = false; }
     if (combat.root) combat.root.visible = false;
+    if (combat.turretRoot) combat.turretRoot.visible = false;
     wings.forEach(function (w) { w.combatHp = 100; w.group.visible = true; });
     document.body.classList.remove('combat-on');
     var L = document.getElementById('combat-layer'); if (L) L.classList.add('hidden');
@@ -2818,11 +2842,13 @@
   }
   function combatCameraOverride(dt) {
     if (!combat.active || !combat.tactical) return;
+    // 战术俯视机位同样锚定战场空间，切视角时镜头不会把敌舰一起带着转。
+    var bq = combat.root.quaternion, bp = combat.root.position;
     desiredPos.set(0, 185, 128).multiplyScalar(state.zoom)
-      .applyQuaternion(ship.quaternion).add(ship.position);
-    lookTarget.set(0, 0, -70).applyQuaternion(ship.quaternion).add(ship.position);
+      .applyQuaternion(bq).add(bp);
+    lookTarget.set(0, 0, -70).applyQuaternion(bq).add(bp);
     camera.position.lerp(desiredPos, 1 - Math.exp(-5 * dt));
-    upVec.set(0, 1, 0).applyQuaternion(ship.quaternion);
+    upVec.set(0, 1, 0).applyQuaternion(bq);
     camHelper.position.copy(camera.position);
     camHelper.up.copy(upVec);
     camHelper.lookAt(lookTarget);
@@ -2834,10 +2860,12 @@
     if (!combat.active) { combatHook(); return; }
     if (dt <= 0) { combatHook(); return; }
     combat.root.visible = true;
-    combat.root.position.copy(ship.position);
-    combat.root.quaternion.copy(ship.quaternion);
+    // 战场空间是开战时锚定的世界坐标，绝不随舰体姿态 / 镜头环绕更新。
+    // 只有炮塔挂载点跟随舰体；两者用 worldToLocal / localToWorld 对齐。
+    combat.turretRoot.position.copy(ship.position);
+    combat.turretRoot.quaternion.copy(ship.quaternion);
+    combat.turretRoot.updateWorldMatrix(true, true);
     combat.root.updateWorldMatrix(true, true);
-    cInvQ.copy(ship.quaternion).invert();
     combat.time += dt;
     if (combat.phase === 'fight') {
       combatWaves();
