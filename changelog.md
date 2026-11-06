@@ -299,16 +299,30 @@
 
 - 由 `Temp/wb_ns_v105_verify.py` 派生 `Temp/wb_ns_v106_verify.py`：更新版本 / 时长断言，新增 12 条「只改时间流速」断言（76 → 88 条），其中 4 条把 `accelerations/step/energy`、`initialFor/estimateSpan`、`render`、`frame` 四个函数块与 `v1.0.5:app.js` **逐字节比对**全部相同。实跑 **88/88 PASS**（390px / 1280px 双视口、页面与交互回归、混沌性与守恒断言），4 组反向对照 NEG / BADTAIL / BAD3RD / BADPERIODIC 全部如预期变红。
 - 新增 `Temp/wb_ns_v106_speed.py` 行为级速率探针：Edge headless 的 `--virtual-time-budget` 只快进 timer、不调度 rAF，直接测「真实时间→物理时间」会恒 0，故改为对**测试副本**插桩 `tickReal(dtReal)`（逐字复用 `frame()` 的时间累加与 `step()` 循环），手动喂 60 个 `1/60 s` 固定步长；产品源码零改动。产品版 1 s 推进 `2.1075`、改回 2.15 的反向对照推进 `2.9400`，比值 `0.7168`（理论 `0.7167`），**12/12 PASS**；若未调慢比值会≈1 使断言转红。双 WebGL iframe + 虚拟时间会挂死 Edge，故改为两次单页面独立调用。
-- `validate_bindings.py` **22/22 PASS**；`node --check` 4 个 JS 全过；`pre_push_audit.py` 推送前审计在提交后执行，结果随「交付对齐」回填。
+- `validate_bindings.py` **22/22 PASS**；`node --check` 4 个 JS 全过；`pre_push_audit.py` 推送前审计 **通过**（`origin/main..HEAD` 区间、敏感文件 0、语法 0 失败、工作区干净）；`Temp/wb_ns_v106_speed.py` 反向对照若把产品速率改回 2.15，比值会≈1 使断言转红。
 
 ### 交付对齐
 
 | 链路 | 标识 | 与本地源码 |
 | --- | --- | --- |
 | 本地 | `app.js` 121,818 B / md5 `1dc57cf013efb72c86a18e0709dc46f8`；`style.css` 25,915 B / md5 `97fe8ebdcbdfa631e357ccf0be8bfa3e` | — |
-| 代码提交 | 待回填 | `index.html` 10,094 B 零改动 |
-| GitHub（主）/ Gitee（镜像）`main` | tag `v1.0.6` 指向交付对齐回填提交 | 双端 HEAD 与 tag refs 一致 |
-| 资料库编辑态 | 待回填 | `app.js` / `style.css` 与本地逐字节一致 |
-| 资料库发布态 | 待回填 | 与编辑态逐字节一致；6 个资源 MIME 全部正确 |
+| 代码提交 | `c011fc2`（4 个文件 / 64 行新增 / 14 行删除） | `index.html` 10,094 B 零改动 |
+| GitHub（主）/ Gitee（镜像）`main` | tag `v1.0.6` 指向本条「交付对齐」回填提交 | 双端 HEAD、tag refs 一致；41 个 blob SHA 与本地全树逐一相同，`.workbuddy` 未泄漏 |
+| 资料库编辑态 | **v21**（事务 `tx_JvzqKBr2boF8wURpmVoqMQ`，baseVersion 20） | `app.js` / `style.css` 与本地、GitHub/Gitee blob 逐字节一致 |
+| 资料库发布态 | **v21** / CDN `nSXHvq_d9HK1`（上一版 `-DOt5WW_-V7M`） | 与编辑态逐字节一致；6 个资源 MIME 全部正确；平台标注 225 / 155 / 1 守恒 |
 
-> 本条在发版完成后回填；量化数据以实际提交与云端终检为准。
+事务 `tx_JvzqKBr2boF8wURpmVoqMQ`（baseVersion 20）先把云端 v1.0.5 基线拉回本地，
+自检采用**精确重建**：`app.js` 基线 + 9 条声明式替换、`style.css` 基线 + 5 条声明式替换，
+结果必须与本地文件逐字节相同（任何额外改动都会使自检转红），并确认云端基线 == `git HEAD~1`（v1.0.5）、
+`index.html` 本地 == `HEAD~1` 零改动。随后**只上传 `app.js`（121,818 B）与 `style.css`（25,915 B）**：
+`app.js` 的 PUT 带 `Content-Type: application/javascript`、`style.css` 带 `text/css`；`index.html` 未上传。
+提交后编辑态 / 发布态同为 **v21**，发布态产物已拉回本地，6 个资源 MIME 全部正确，
+发布态 `index.html` 仍为平台注入版 25,221 B、标注 225 / 155 / 1 与 `__NS_BRIDGE__` 守恒。
+
+五链路终检 `CHAIN_ALL_OK True`：本地 / GitHub blob / Gitee blob / 编辑态 / 发布态的
+`app.js`、`style.css` 四者逐字节相同；GitHub 与 Gitee 各 41 个 blob SHA 与本地全树一致、
+`.workbuddy` 未泄漏；双端默认分支均为 `main`、tag refs 完全一致；本地工作区干净。
+发布态拉回在 390px iframe 中**实跑 23/23 PASS**（v1.0.6 版本与 `duration = 3.0`、
+指针中性 `speedScale = 1`、混沌非周期、动量 / 质心 / 成对力守恒、能量有界、
+速度可视化、无尾迹小点、按钮完整、无控制台错误），并确认发布态源码含 `LOOP_S = 3.0`、
+CSS 为 3s 且无残留 `2.15s`、CDN 前缀已换成本轮 `nSXHvq_d9HK1`。
