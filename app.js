@@ -1188,6 +1188,10 @@
 
   function setGear(n, silent) {
     n = clamp(n, 0, 4);
+    if (combat.active && n === 4) {
+      showToast('接敌中 · 跃迁锁定', 'WARP LOCKED / COMBAT', false);
+      return;
+    }
     if (n === state.gear) return;
     state.gear = n;
     state.targetC = AHEAD[n].c;
@@ -1235,7 +1239,7 @@
     el.engineDot.className = 'led ' + (state.speedC > 0.0001 ? (warpOn ? 'warp' : 'on') : '');
     el.engineText.textContent = warpOn ? '跃迁引擎 · 全功率'
       : (state.gear === 0 ? '聚变引擎 · 待机' : '聚变引擎 · 巡航输出');
-    el.fleet.textContent = (wings.length + 1) + ' / ' + (wings.length + 1) + ' 在列';
+    el.fleet.textContent = ((combat.active ? combatAliveWings() : wings.length) + 1) + ' / ' + (wings.length + 1) + ' 在列';
     el.formation.textContent = FORMATIONS[state.formation].name;
     el.radarLabel.textContent = (state.formation + 1) + '/' + FORMATIONS.length + ' ' + FORMATIONS[state.formation].name;
 
@@ -1273,6 +1277,7 @@
     x.beginPath(); x.moveTo(cx, cy - 6); x.lineTo(cx + 5, cy + 5);
     x.lineTo(cx, cy + 2); x.lineTo(cx - 5, cy + 5); x.closePath(); x.fill();
     x.shadowBlur = 0;
+    combatRadar(x, cx, cy, R);
   }
 
   /* ================= 音效：空灵星际气流（WebAudio 程序化生成） =================
@@ -1438,6 +1443,13 @@
       b.setAttribute('aria-label', '折叠或展开 HUD 面板');
       bar.appendChild(b);
     }
+    if (!document.getElementById('btn-campaign')) {
+      var c = document.createElement('button');
+      c.id = 'btn-campaign'; c.type = 'button'; c.textContent = '◈';
+      c.title = '舰队战役 · 战术推演（?campaign=1）';
+      c.setAttribute('aria-label', '启动舰队战役战术推演');
+      bar.appendChild(c);
+    }
   }
   /* 版本号徽标：运行时追加到舰籍面板，复用 .kv 行样式，
      避免改动托管平台注入过的 index.html（平台标注守恒红线）。 */
@@ -1565,7 +1577,7 @@
     if (!t || !t.closest) return false;
     return !!t.closest('button, [data-dock], #toolbar, #panel-dock, #gearbar, ' +
                        '#hintbar, #view-chip, #startscreen, #help-panel, ' +
-                       '.start-card, .help-card');
+                       '.start-card, .help-card, #combat-layer');
   }
 
   var gt = { count: 0, mode: '', startDist: 0, startCx: 0, startCy: 0,
@@ -1689,7 +1701,7 @@
   }, true);
 
   /* 程序版本：与 changelog.md / git tag vX.Y.Z 保持一致，每次发版必须同步更新。 */
-  var APP_VERSION = '1.0.6';
+  var APP_VERSION = '1.1.0';
   window.__NS_VERSION__ = APP_VERSION;
 
   window.__NS_VIEW__ = {
@@ -1705,10 +1717,42 @@
     ensureDock(); ensureViewChip(); ensureToolbarButtons(); ensureVersionBadge(); injectGestureText();
   }, 2500);
 
+  /* 战役 UI：window 捕获阶段事件委托，按钮节点被托管平台替换时仍命中。 */
+  window.addEventListener('click', function (e) {
+    var t = e.target;
+    if (!t || !t.closest) return;
+    var launch = t.closest('#btn-campaign');
+    if (launch) { e.preventDefault(); combatStart(1); return; }
+    var act = t.closest('#combat-layer [data-act]');
+    if (!act || !combat.active) return;
+    e.preventDefault();
+    var a = act.getAttribute('data-act');
+    if (a === 'target') combatCycleTarget();
+    else if (a === 'salvo') combatSalvo();
+    else if (a === 'tactical') combatToggleTactical();
+    else if (a === 'focus' || a === 'evade') combatSetOrder(a);
+    else if (a === 'exit') combatExit();
+    combatRefreshUI();
+    combatHook();
+  }, true);
+
   /* ================= 输入 ================= */
   window.addEventListener('keydown', function (e) {
     var k = e.key.toLowerCase();
     keys[k] = true;
+    if (combat.active) {
+      if (combat.phase === 'result') {
+        if (k === 'enter') { combatStart(combat.mission); return; }
+        if (k === 'escape') { combatExit(); return; }
+        return;
+      }
+      if (k === 'tab') { e.preventDefault(); combatCycleTarget(); combatRefreshUI(); return; }
+      if (k === ' ') { e.preventDefault(); combatSalvo(); combatRefreshUI(); return; }
+      if (k === 'c') { combatToggleTactical(); combatRefreshUI(); return; }
+      if (k === 'g') { combatSetOrder('focus'); combatRefreshUI(); return; }
+      if (k === 'b') { combatSetOrder('evade'); combatRefreshUI(); return; }
+      if (k === 'escape') { combatExit(); return; }
+    }
     if (k >= '0' && k <= '4' && k.length === 1) setGear(parseInt(k, 10));
     else if (k === 'v') {
       state.camIndex = (state.camIndex + 1) % CAMS.length;
@@ -1734,6 +1778,7 @@
   window.addEventListener('blur', function () { keys = {}; });
 
   window.addEventListener('mousemove', function (e) {
+    if (combat.active && combat.tactical) { state.mouseNX = 0; state.mouseNY = 0; return; }
     if (orbitDrag.active) return;              // 桌面环绕拖动时不误改舰体姿态
     if (pointerOnUI(e)) {                      // 指针在 UI 上：停止鼠标驾驶
       state.mouseNX = 0; state.mouseNY = 0;
@@ -1758,9 +1803,10 @@
     setGear(state.gear + (e.deltaY < 0 ? 1 : -1));
   }, { passive: false });
 
-  renderer.domElement.addEventListener('click', function () {
+  renderer.domElement.addEventListener('click', function (e) {
     var s = $('startscreen');
     if (s && !s.classList.contains('hidden')) { enterBridge(); return; }  // 开场层还在时点画面也能进入
+    if (combat.active && combat.tactical) { combatTacticalPick(e.clientX, e.clientY); return; }
     if (state.compact) closeDocks();              // 点画面收起临时展开的面板
     if (state.helpOpen) return;
     if (performance.now() - gt.lastGesture < 350) return;  // 双指手势结束不误触指针锁定
@@ -2221,6 +2267,627 @@
     syncCompact();                               // 横竖屏 / 窗口变化即时重排 HUD
   });
 
+  /* ================= 舰队战役 · P0 可玩原型（v1.1.0） =================
+     战斗发生在「以旗舰为原点的局部空间」：敌舰 / 炮塔 / 弹丸都挂在 combat.root 下，
+     root 每帧跟随 ship 的姿态与位置；星场仍按 deltaVec 流动，但战斗态只乘一个视觉
+     系数 combatFlow，敌人不会被背景一起冲走。全部资源程序化生成，零新增文件；
+     全部 UI 由运行时 DOM 创建，index.html 零改动。
+     红线：不动四喷口 / 蓝焰 / AHEAD / orbitBy / 开场三体物理 / 手势 / 早绑定进舰桥。 */
+  var combat = {
+    active: false, tactical: false, phase: 'idle', mission: 1, time: 0,
+    target: null, order: 'focus', salvoCd: 0, wingCd: 1.6,
+    kills: 0, losses: 0, hull: 100, shield: 100,
+    wave: 0, waveAt: 0, result: null, log: [], hitFlash: 0,
+    root: null, enemies: [], turrets: [], shots: [], bursts: [], nextId: 1
+  };
+  var COMBAT_MISSION = { name: '接触 · 智子盲区', en: 'CONTACT / SOPHON BLIND ZONE', limit: 150 };
+  var COMBAT_WAVES = [
+    { at: 0,  list: [['probe', 3]] },
+    { at: 24, list: [['probe', 3], ['raider', 1]] },
+    { at: 52, list: [['probe', 2], ['raider', 2]] },
+    { at: 82, list: [['raider', 2]] }
+  ];
+  var COMBAT_SPEC = {
+    probe:  { name: '智子探针', hp: 20, speed: 27, dmg: 4, cd: 2.6 },
+    raider: { name: '三体拦截舰', hp: 60, speed: 16, dmg: 9, cd: 3.4 }
+  };
+  var COMBAT_UI_HTML = [
+    '<div id="c-mission" class="c-card">',
+    '  <div class="c-eyebrow">MISSION 01 · TACTICAL SIMULATION</div>',
+    '  <div class="c-title">接触 · 智子盲区</div>',
+    '  <div class="c-row"><span>战役目标</span><b>清除全部敌对信号</b></div>',
+    '  <div class="c-row"><span>剩余敌舰</span><b id="c-remain">0</b></div>',
+    '  <div class="c-row"><span>推演计时</span><b id="c-time">0:00</b></div>',
+    '</div>',
+    '<div id="c-target" class="c-card">',
+    '  <div class="c-eyebrow">TARGET LOCK / 锁定目标</div>',
+    '  <div class="c-title" id="c-tname">未锁定</div>',
+    '  <div class="c-bar"><i id="c-tbar"></i></div>',
+    '  <div class="c-sub" id="c-tdist">按 Tab 选择目标</div>',
+    '</div>',
+    '<div id="c-status" class="c-card">',
+    '  <div class="c-eyebrow">NS-01 / FLEET STATUS</div>',
+    '  <div class="c-row"><span>舰体完整度</span><b id="c-hull">100%</b></div>',
+    '  <div class="c-row"><span>护盾</span><b id="c-shield">100%</b></div>',
+    '  <div class="c-row"><span>舰队指令</span><b id="c-order">集火 FOCUS</b></div>',
+    '  <div class="c-bar"><i id="c-salvobar"></i></div>',
+    '  <div class="c-sub" id="c-salvo">主炮齐射 · 就绪</div>',
+    '</div>',
+    '<div id="c-log" class="c-card">',
+    '  <div class="c-eyebrow">COMBAT LOG / 战报</div>',
+    '  <div id="c-logbody"></div>',
+    '</div>',
+    '<div id="c-bar">',
+    '  <button type="button" data-act="target">Tab 切目标</button>',
+    '  <button type="button" data-act="salvo">空格 齐射</button>',
+    '  <button type="button" data-act="tactical">C 战术俯视</button>',
+    '  <button type="button" data-act="focus">G 集火</button>',
+    '  <button type="button" data-act="evade">B 规避</button>',
+    '  <button type="button" data-act="exit">Esc 退出</button>',
+    '</div>',
+    '<div id="c-result" class="c-card hidden">',
+    '  <div class="c-eyebrow">SIMULATION RESULT / 推演结算</div>',
+    '  <div class="c-big" id="c-result-title">推演完成</div>',
+    '  <div class="c-line" id="c-result-body"></div>',
+    '  <div class="c-sub">Enter 再来一次 · Esc 返回自由航行</div>',
+    '</div>',
+    '<div id="c-hit"></div>'
+  ].join('\n');
+
+  var cTmpA = new THREE.Vector3(), cTmpB = new THREE.Vector3();
+  var cTmpC = new THREE.Vector3(), cTmpD = new THREE.Vector3();
+  var cInvQ = new THREE.Quaternion();
+  var cGeoProbe = new THREE.OctahedronGeometry(3.4, 0);
+  var cGeoRaider = new THREE.ConeGeometry(3.6, 13, 5);
+  var cMatProbe = new THREE.MeshStandardMaterial({ color: 0x9fe8ff, emissive: 0x2ba7d8, emissiveIntensity: 1.8, metalness: 0.6, roughness: 0.25 });
+  var cMatRaider = new THREE.MeshStandardMaterial({ color: 0x8a3038, emissive: 0xa02a2a, emissiveIntensity: 0.9, metalness: 0.7, roughness: 0.35 });
+  var cTurretMat = new THREE.MeshStandardMaterial({ color: 0x9db6c6, metalness: 0.85, roughness: 0.3, emissive: 0x0a2b3c, emissiveIntensity: 0.5 });
+  var cGeoBase = new THREE.CylinderGeometry(1.7, 2.2, 1.6, 8);
+  var cGeoBarrel = new THREE.CylinderGeometry(0.32, 0.44, 5.4, 6);
+  var cShotGeo = new THREE.SphereGeometry(0.95, 6, 5);
+  var cBurstGeo = new THREE.SphereGeometry(1, 8, 6);
+  var cMatShot = new THREE.MeshBasicMaterial({ color: 0xa9f4ff });
+  var cMatEnemyShot = new THREE.MeshBasicMaterial({ color: 0xff6b6b });
+  var cMatBurst = new THREE.MeshBasicMaterial({ color: 0xffd9a0, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false });
+  var combatUIAccum = 0;
+
+  /* 炮塔硬点：从真实舰体几何包围盒运行时导出，排除尾焰 / 光核等特效网格。
+     与 detectNozzles() 同一思路——模型换了，炮塔自动跟着走，不硬编码坐标。 */
+  function combatHullBox() {
+    var box = new THREE.Box3();
+    var skip = [];
+    ['flames', 'outers', 'glows'].forEach(function (k) {
+      var arr = flagship[k] || [];
+      for (var i = 0; i < arr.length; i++) skip.push(arr[i]);
+    });
+    if (flagship.trail) skip.push(flagship.trail);
+    var src = ship;
+    src.updateWorldMatrix(true, true);
+    src.traverse(function (o) {
+      if (!o.isMesh || skip.indexOf(o) >= 0) return;
+      if (!o.geometry) return;
+      if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
+      if (o.geometry.boundingBox) box.union(o.geometry.boundingBox.clone().applyMatrix4(o.matrixWorld));
+    });
+    if (box.isEmpty()) box.setFromObject(src);
+    return box;
+  }
+  function combatBuildTurrets() {
+    var box = combatHullBox();
+    var c = box.getCenter(new THREE.Vector3());
+    var w = box.max.x - box.min.x, h = box.max.y - box.min.y, d = box.max.z - box.min.z;
+    var pts = [
+      [-w * 0.20, c.y + h * 0.42, c.z - d * 0.10],
+      [ w * 0.20, c.y + h * 0.42, c.z - d * 0.10],
+      [-w * 0.40, c.y,            c.z - d * 0.02],
+      [ w * 0.40, c.y,            c.z - d * 0.02],
+      [-w * 0.20, c.y - h * 0.42, c.z + d * 0.10],
+      [ w * 0.20, c.y - h * 0.42, c.z + d * 0.10]
+    ];
+    pts.forEach(function (p) {
+      var g = new THREE.Group();
+      g.position.set(p[0], p[1], p[2]);
+      var base = new THREE.Mesh(cGeoBase, cTurretMat);
+      base.rotation.x = Math.PI / 2;
+      g.add(base);
+      var b1 = new THREE.Mesh(cGeoBarrel, cTurretMat);
+      b1.position.set(-0.9, 0, 3.2); b1.rotation.x = Math.PI / 2; g.add(b1);
+      var b2 = new THREE.Mesh(cGeoBarrel, cTurretMat);
+      b2.position.set(0.9, 0, 3.2); b2.rotation.x = Math.PI / 2; g.add(b2);
+      combat.root.add(g);
+      combat.turrets.push({ group: g });
+    });
+    window.__NS_TURRETS__ = { count: combat.turrets.length, source: 'hull-bounds', box: [w, h, d].map(function (v) { return +v.toFixed(2); }) };
+  }
+  function combatInitPools() {
+    for (var i = 0; i < 72; i++) {
+      var m = new THREE.Mesh(cShotGeo, cMatShot);
+      m.visible = false; combat.root.add(m);
+      combat.shots.push({ mesh: m, active: false, vel: new THREE.Vector3(), side: 'ally', dmg: 0, target: null, life: 0 });
+    }
+    for (var j = 0; j < 16; j++) {
+      var b = new THREE.Mesh(cBurstGeo, cMatBurst.clone());
+      b.visible = false; combat.root.add(b);
+      combat.bursts.push({ mesh: b, active: false, life: 0, max: 0.45, size: 1 });
+    }
+  }
+  function combatTakeShot(side, from, to, speed, dmg, target) {
+    var s = null;
+    for (var i = 0; i < combat.shots.length; i++) if (!combat.shots[i].active) { s = combat.shots[i]; break; }
+    if (!s) return;
+    cTmpD.copy(to).sub(from);
+    if (cTmpD.lengthSq() < 0.01) cTmpD.set(0, 0, -1);
+    s.active = true; s.side = side; s.dmg = dmg; s.target = target || null; s.life = 4;
+    s.mesh.visible = true;
+    s.mesh.material = side === 'ally' ? cMatShot : cMatEnemyShot;
+    s.mesh.position.copy(from);
+    s.vel.copy(cTmpD).normalize().multiplyScalar(speed);
+  }
+  function combatBurst(pos, color, size) {
+    var b = null;
+    for (var i = 0; i < combat.bursts.length; i++) if (!combat.bursts[i].active) { b = combat.bursts[i]; break; }
+    if (!b) return;
+    b.active = true; b.life = 0.45; b.max = 0.45; b.size = size || 1;
+    b.mesh.visible = true; b.mesh.position.copy(pos);
+    b.mesh.material.color.setHex(color);
+    b.mesh.material.opacity = 0.9;
+    b.mesh.scale.setScalar(size * 1.4);
+  }
+  function combatBursts(dt) {
+    for (var i = 0; i < combat.bursts.length; i++) {
+      var b = combat.bursts[i];
+      if (!b.active) continue;
+      b.life -= dt;
+      if (b.life <= 0) { b.active = false; b.mesh.visible = false; continue; }
+      var k = b.life / b.max;
+      b.mesh.material.opacity = 0.9 * k;
+      b.mesh.scale.setScalar(b.size * (1.4 + (1 - k) * 3.2));
+    }
+  }
+  function combatSpawn(kind, idx, total) {
+    var spec = COMBAT_SPEC[kind];
+    var mesh = new THREE.Mesh(kind === 'probe' ? cGeoProbe : cGeoRaider,
+                              kind === 'probe' ? cMatProbe : cMatRaider);
+    var ang = (idx / Math.max(total, 1)) * PI2 + Math.random() * 0.6;
+    var pos = new THREE.Vector3(
+      Math.cos(ang) * (70 + Math.random() * 90),
+      (Math.random() - 0.5) * 70,
+      -240 - Math.random() * 150
+    );
+    mesh.position.copy(pos);
+    combat.root.add(mesh);
+    var e = {
+      id: combat.nextId++, kind: kind, name: spec.name, hp: spec.hp, maxHp: spec.hp,
+      pos: pos, mesh: mesh, alive: true, cd: 0.6 + Math.random() * 1.2,
+      seed: Math.random() * 10, orbit: ang
+    };
+    combat.enemies.push(e);
+    return e;
+  }
+  function combatAliveEnemies() {
+    var n = 0;
+    for (var i = 0; i < combat.enemies.length; i++) if (combat.enemies[i].alive) n++;
+    return n;
+  }
+  function combatAliveWings() {
+    var n = 0;
+    for (var i = 0; i < wings.length; i++) if (wings[i].combatHp > 0) n++;
+    return n;
+  }
+  function combatPickTarget() {
+    var best = null, bestScore = -1;
+    for (var i = 0; i < combat.enemies.length; i++) {
+      var e = combat.enemies[i];
+      if (!e.alive) continue;
+      var s = 1000 / (e.pos.length() + 60) + (e.maxHp - e.hp) * 0.01;
+      if (s > bestScore) { bestScore = s; best = e; }
+    }
+    return best;
+  }
+  function combatCycleTarget() {
+    var alive = [];
+    for (var i = 0; i < combat.enemies.length; i++) if (combat.enemies[i].alive) alive.push(combat.enemies[i]);
+    if (!alive.length) { combat.target = null; return; }
+    var idx = alive.indexOf(combat.target);
+    combat.target = alive[(idx + 1) % alive.length];
+    combatLog('锁定 ' + combat.target.name + ' #' + combat.target.id);
+    beep(620, 0.08, 0.05);
+  }
+  function combatDamageEnemy(e, dmg) {
+    if (!e || !e.alive) return;
+    e.hp -= dmg;
+    combatBurst(e.pos, 0xa9f4ff, 1.4);
+    if (e.hp <= 0) {
+      e.alive = false; e.mesh.visible = false;
+      combat.kills++;
+      combatBurst(e.pos, 0xffd9a0, 4.4);
+      combatLog('击毁 ' + e.name + ' · 累计 ' + combat.kills);
+      if (combat.target === e) combat.target = combatPickTarget();
+      beep(760, 0.09, 0.05);
+    }
+  }
+  function combatDamageFleet(dmg) {
+    if (combat.order === 'evade' && Math.random() < 0.40) {
+      combatLog('规避成功 · 敌弹未命中');
+      return;
+    }
+    var alive = [];
+    for (var i = 0; i < wings.length; i++) if (wings[i].combatHp > 0) alive.push(wings[i]);
+    if (alive.length && Math.random() < 0.45) {
+      var w = alive[Math.floor(Math.random() * alive.length)];
+      w.combatHp -= dmg * 1.6;
+      cTmpA.copy(w.pos).applyQuaternion(cInvQ);
+      combatBurst(cTmpA, 0xff8b6b, 2.2);
+      if (w.combatHp <= 0) { w.group.visible = false; combat.losses++; combatLog('僚舰失联 · 舰队 −1'); }
+      else combatLog('僚舰受击 · 完整度 ' + Math.round(w.combatHp) + '%');
+    } else if (combat.shield > 0) {
+      combat.shield = Math.max(0, combat.shield - dmg);
+      combatLog('旗舰护盾 −' + Math.round(dmg));
+    } else {
+      combat.hull = Math.max(0, combat.hull - dmg * 0.8);
+      combatLog('旗舰舰体 −' + Math.round(dmg * 0.8));
+    }
+    combat.hitFlash = 0.6;
+    if (combat.hull <= 0) combatFinish(false);
+  }
+  function combatSalvo() {
+    if (!combat.active || combat.phase !== 'fight' || combat.salvoCd > 0) return false;
+    var e = combat.target && combat.target.alive ? combat.target : combatPickTarget();
+    if (!e) return false;
+    combat.target = e;
+    combat.salvoCd = 2.4;
+    var alive = [];
+    for (var k = 0; k < combat.enemies.length; k++) if (combat.enemies[k].alive) alive.push(combat.enemies[k]);
+    var first = alive.indexOf(e);
+    if (first > 0) { alive.splice(first, 1); alive.unshift(e); }
+    var dmg = combat.order === 'focus' ? 12 : 9;
+    for (var i = 0; i < combat.turrets.length; i++) {
+      var tgt = alive[i % alive.length];
+      cTmpA.copy(combat.turrets[i].group.position);
+      cTmpB.copy(tgt.pos);
+      combatTakeShot('ally', cTmpA, cTmpB, 260, dmg, tgt);
+      cTmpC.copy(combat.turrets[i].group.position);
+      combatBurst(cTmpC, 0xa9f4ff, 1.0);
+    }
+    combatLog('主炮齐射 · ' + combat.turrets.length + ' 座 → ' + alive.length + ' 个目标');
+    initAudio();
+    beep(240, 0.16, 0.08);
+    return true;
+  }
+  function combatEnemyFire(e, spec) {
+    cTmpA.copy(e.pos);
+    cTmpB.set((Math.random() - 0.5) * 40, (Math.random() - 0.5) * 20, 0);
+    combatTakeShot('enemy', cTmpA, cTmpB, 150, spec.dmg, null);
+  }
+  function combatWingFire(dt) {
+    combat.wingCd -= dt;
+    if (combat.wingCd > 0 || !combat.target || !combat.target.alive) return;
+    combat.wingCd = combat.order === 'focus' ? 1.3 : 2.1;
+    var alive = [];
+    for (var i = 0; i < wings.length; i++) if (wings[i].combatHp > 0) alive.push(wings[i]);
+    if (!alive.length) return;
+    var w = alive[Math.floor(Math.random() * alive.length)];
+    cTmpA.copy(w.pos).applyQuaternion(cInvQ);
+    cTmpB.copy(combat.target.pos);
+    combatTakeShot('ally', cTmpA, cTmpB, 240, 4, combat.target);
+  }
+  function combatEnemies(dt, t) {
+    for (var i = 0; i < combat.enemies.length; i++) {
+      var e = combat.enemies[i];
+      if (!e.alive) continue;
+      var spec = COMBAT_SPEC[e.kind];
+      var dist = e.pos.length();
+      if (dist > 165) {
+        e.pos.addScaledVector(e.pos, -spec.speed * dt / dist);
+      } else {
+        e.orbit += dt * (e.kind === 'probe' ? 0.55 : 0.32);
+        var rr = 165 + Math.sin(t * 0.7 + e.seed) * 22;
+        e.pos.set(Math.cos(e.orbit) * rr * 0.72,
+                  Math.sin(t * 0.5 + e.seed) * 26,
+                  -Math.abs(Math.sin(e.orbit)) * rr - 60);
+      }
+      e.mesh.position.copy(e.pos);
+      e.mesh.rotation.y += dt * 1.2;
+      e.mesh.rotation.x += dt * 0.5;
+      e.cd -= dt;
+      if (e.cd <= 0) {
+        e.cd = spec.cd * (0.8 + Math.random() * 0.4);
+        combatEnemyFire(e, spec);
+      }
+    }
+  }
+  function combatAimTurrets() {
+    if (!combat.target || !combat.target.alive) return;
+    cTmpB.copy(combat.target.pos);
+    combat.root.localToWorld(cTmpB);
+    for (var i = 0; i < combat.turrets.length; i++) combat.turrets[i].group.lookAt(cTmpB);
+  }
+  function combatShots(dt) {
+    for (var i = 0; i < combat.shots.length; i++) {
+      var s = combat.shots[i];
+      if (!s.active) continue;
+      s.life -= dt;
+      if (s.life <= 0) { s.active = false; s.mesh.visible = false; continue; }
+      if (s.side === 'ally' && s.target && s.target.alive) {
+        cTmpA.copy(s.target.pos).sub(s.mesh.position);
+        var d = cTmpA.length();
+        if (d < 16) {
+          combatDamageEnemy(s.target, s.dmg);
+          combatBurst(s.mesh.position, 0xa9f4ff, 1.6);
+          s.active = false; s.mesh.visible = false;
+          continue;
+        }
+        cTmpA.multiplyScalar(1 / d).multiplyScalar(s.vel.length());
+        s.vel.lerp(cTmpA, Math.min(1, dt * 2.2));
+      } else if (s.side === 'enemy' && s.mesh.position.lengthSq() < 900) {
+        combatDamageFleet(s.dmg);
+        combatBurst(s.mesh.position, 0xff8b6b, 2.0);
+        s.active = false; s.mesh.visible = false;
+        continue;
+      }
+      s.mesh.position.addScaledVector(s.vel, dt);
+    }
+  }
+  function combatWaves() {
+    while (combat.wave < COMBAT_WAVES.length &&
+           (combat.time >= COMBAT_WAVES[combat.wave].at ||
+            (combat.wave > 0 && combatAliveEnemies() === 0 && combat.time - combat.waveAt >= 5))) {
+      if (combatAliveEnemies() >= 7) break;
+      var wv = COMBAT_WAVES[combat.wave];
+      var spawned = 0;
+      for (var i = 0; i < wv.list.length; i++) {
+        for (var j = 0; j < wv.list[i][1]; j++) {
+          combatSpawn(wv.list[i][0], j, wv.list[i][1]);
+          spawned++;
+        }
+      }
+      combat.wave++;
+      combat.waveAt = combat.time;
+      combatLog('第 ' + combat.wave + ' 波接敌 · ' + spawned + ' 个信号');
+      showToast('第 ' + combat.wave + ' 波接敌', 'HOSTILES INBOUND', false);
+      beep(330, 0.22, 0.07);
+      if (!combat.target) combat.target = combatPickTarget();
+    }
+  }
+  function combatLog(text) {
+    combat.log.unshift(text);
+    if (combat.log.length > 6) combat.log.length = 6;
+  }
+  function combatFinish(win) {
+    if (combat.phase === 'result') return;
+    combat.phase = 'result';
+    combat.result = win ? 'win' : 'lose';
+    combatLog(win ? '推演完成 · 全部敌对信号清除' : '推演失败 · 舰队失去战斗力');
+    showToast(win ? '推演完成' : '推演失败', win ? 'MISSION COMPLETE' : 'MISSION FAILED', false);
+    initAudio();
+    beep(win ? 880 : 180, 0.35, 0.09);
+    combatRefreshUI();
+  }
+  function combatEnsureUI() {
+    var L = document.getElementById('combat-layer');
+    if (L) { L.classList.remove('hidden'); return L; }
+    L = document.createElement('div');
+    L.id = 'combat-layer';
+    L.innerHTML = COMBAT_UI_HTML;
+    document.body.appendChild(L);
+    return L;
+  }
+  function combatRefreshUI() {
+    if (!combat.active) return;
+    combatEnsureUI();
+    document.body.classList.add('combat-on');
+    function set(id, text) { var e = document.getElementById(id); if (e) e.textContent = text; }
+    var mm = Math.floor(combat.time / 60), ss = Math.floor(combat.time % 60);
+    set('c-remain', String(combatAliveEnemies()));
+    set('c-time', mm + ':' + (ss < 10 ? '0' : '') + ss);
+    set('c-tname', combat.target && combat.target.alive
+      ? combat.target.name + ' #' + combat.target.id : '未锁定');
+    set('c-tdist', combat.target && combat.target.alive
+      ? '距离 ' + (combat.target.pos.length() / 10).toFixed(1) + ' 千 km · HP ' +
+        Math.max(0, Math.round(combat.target.hp)) + '/' + combat.target.maxHp
+      : '按 Tab 选择目标');
+    set('c-hull', Math.round(combat.hull) + '%');
+    set('c-shield', Math.round(combat.shield) + '%');
+    set('c-order', combat.order === 'focus' ? '集火 FOCUS' : '规避 EVADE');
+    set('c-salvo', combat.salvoCd > 0.05
+      ? '主炮充能 ' + combat.salvoCd.toFixed(1) + ' s'
+      : '主炮齐射 · 就绪（空格）');
+    var tb = document.getElementById('c-tbar');
+    if (tb) tb.style.width = (combat.target && combat.target.alive
+      ? clamp(combat.target.hp / combat.target.maxHp * 100, 0, 100) : 0).toFixed(0) + '%';
+    var sb = document.getElementById('c-salvobar');
+    if (sb) sb.style.width = clamp((1 - combat.salvoCd / 2.4) * 100, 0, 100).toFixed(0) + '%';
+    var hit = document.getElementById('c-hit');
+    if (hit) hit.style.opacity = combat.hitFlash > 0 ? String(clamp(combat.hitFlash, 0, 0.6)) : '0';
+    var lg = document.getElementById('c-logbody');
+    if (lg) lg.innerHTML = combat.log.map(function (s) { return '<div>· ' + s + '</div>'; }).join('');
+    var pairs = [['tactical', combat.tactical], ['focus', combat.order === 'focus'], ['evade', combat.order === 'evade']];
+    pairs.forEach(function (p) {
+      var b = document.querySelector('#c-bar [data-act="' + p[0] + '"]');
+      if (b) b.classList.toggle('on', !!p[1]);
+    });
+    var R = document.getElementById('c-result');
+    if (R) {
+      if (combat.phase === 'result') {
+        R.classList.remove('hidden');
+        set('c-result-title', combat.result === 'win' ? '推演完成' : '推演失败');
+        set('c-result-body', '击毁 ' + combat.kills + ' · 僚舰损失 ' + combat.losses +
+          ' · 舰队 ' + (combatAliveWings() + 1) + '/12 · 用时 ' + Math.round(combat.time) + ' s');
+      } else R.classList.add('hidden');
+    }
+  }
+  function combatStart(m) {
+    if (combat.active) combatExit();
+    combat.active = true; combat.phase = 'fight'; combat.mission = m || 1;
+    combat.time = 0; combat.wave = 0; combat.waveAt = 0; combat.kills = 0; combat.losses = 0;
+    combat.hull = 100; combat.shield = 100; combat.salvoCd = 0; combat.wingCd = 1.6;
+    combat.order = 'focus'; combat.target = null; combat.result = null;
+    combat.tactical = false; combat.log = []; combat.hitFlash = 0;
+    combat.nextId = 1; combatUIAccum = 0;
+    for (var i = 0; i < combat.enemies.length; i++) combat.root && combat.root.remove(combat.enemies[i].mesh);
+    combat.enemies.length = 0;
+    if (!combat.root) {
+      combat.root = new THREE.Group();
+      combat.root.name = 'combat-local-space';
+      scene.add(combat.root);
+      combatInitPools();
+      combatBuildTurrets();
+    }
+    combat.root.visible = true;
+    for (var s = 0; s < combat.shots.length; s++) { combat.shots[s].active = false; combat.shots[s].mesh.visible = false; }
+    for (var b = 0; b < combat.bursts.length; b++) { combat.bursts[b].active = false; combat.bursts[b].mesh.visible = false; }
+    wings.forEach(function (w) { w.combatHp = 100; w.group.visible = true; });
+    var st = $('startscreen'); if (st) st.classList.add('hidden');
+    setGear(2, true);
+    state.targetC = 0.05; state.speedC = 0.05; state.warp = 0;
+    state.mouseNX = 0; state.mouseNY = 0;
+    combatLog('任务 01 · ' + COMBAT_MISSION.name + ' · 战术推演启动');
+    combatLog('Tab 切目标 / 空格齐射 / C 战术俯视 / G 集火 / B 规避');
+    showToast('战术推演 · 接敌', COMBAT_MISSION.en, false);
+    initAudio();
+    beep(520, 0.16, 0.07);
+    combatRefreshUI();
+    combatHook();
+  }
+  function combatExit() {
+    if (!combat.active) return;
+    combat.active = false; combat.phase = 'idle'; combat.tactical = false;
+    for (var i = 0; i < combat.enemies.length; i++) combat.root.remove(combat.enemies[i].mesh);
+    combat.enemies.length = 0;
+    for (var s = 0; s < combat.shots.length; s++) { combat.shots[s].active = false; combat.shots[s].mesh.visible = false; }
+    for (var b = 0; b < combat.bursts.length; b++) { combat.bursts[b].active = false; combat.bursts[b].mesh.visible = false; }
+    if (combat.root) combat.root.visible = false;
+    wings.forEach(function (w) { w.combatHp = 100; w.group.visible = true; });
+    document.body.classList.remove('combat-on');
+    var L = document.getElementById('combat-layer'); if (L) L.classList.add('hidden');
+    combat.target = null;
+    showToast('返回自由航行', 'FREE FLIGHT RESTORED', false);
+    combatHook();
+  }
+  function combatToggleTactical() {
+    combat.tactical = !combat.tactical;
+    state.mouseNX = 0; state.mouseNY = 0;
+    combatLog(combat.tactical ? '切换战术俯视 · 鼠标改为点选目标' : '返回第三人称跟随');
+    showToast(combat.tactical ? '战术俯视' : '第三人称跟随',
+              combat.tactical ? 'TACTICAL VIEW' : 'CHASE CAM', false);
+    beep(combat.tactical ? 680 : 480, 0.1, 0.05);
+  }
+  function combatSetOrder(o) {
+    combat.order = o === 'evade' ? 'evade' : 'focus';
+    combatLog('舰队指令 · ' + (combat.order === 'focus' ? '集火 FOCUS' : '规避 EVADE'));
+    showToast(combat.order === 'focus' ? '集火 FOCUS' : '规避 EVADE', 'FLEET ORDER', false);
+    beep(combat.order === 'focus' ? 700 : 440, 0.1, 0.05);
+  }
+  function combatTacticalPick(clientX, clientY) {
+    if (!combat.active || !combat.tactical) return false;
+    var nx = (clientX / window.innerWidth) * 2 - 1;
+    var ny = -(clientY / window.innerHeight) * 2 + 1;
+    var best = null, bestD = 0.18;
+    for (var i = 0; i < combat.enemies.length; i++) {
+      var e = combat.enemies[i];
+      if (!e.alive) continue;
+      cTmpA.copy(e.pos);
+      combat.root.localToWorld(cTmpA);
+      cTmpA.project(camera);
+      if (cTmpA.z >= 1) continue;
+      var d = Math.sqrt((cTmpA.x - nx) * (cTmpA.x - nx) + (cTmpA.y - ny) * (cTmpA.y - ny));
+      if (d < bestD) { bestD = d; best = e; }
+    }
+    if (best) {
+      combat.target = best;
+      combatLog('手动锁定 ' + best.name + ' #' + best.id);
+      beep(620, 0.08, 0.05);
+    }
+    return true;
+  }
+  function combatRadar(x, cx, cy, R) {
+    if (!combat.active) return;
+    for (var i = 0; i < combat.enemies.length; i++) {
+      var e = combat.enemies[i];
+      if (!e.alive) continue;
+      var px = cx + clamp(e.pos.x * 0.22, -R + 4, R - 4);
+      var py = cy + clamp(e.pos.z * 0.22, -R + 4, R - 4);
+      var locked = e === combat.target;
+      x.fillStyle = locked ? '#ffe08a' : '#ff6b7d';
+      x.beginPath(); x.arc(px, py, locked ? 3.4 : 2.4, 0, PI2); x.fill();
+      if (locked) {
+        x.strokeStyle = '#ffe08a'; x.lineWidth = 1;
+        x.beginPath(); x.arc(px, py, 6.5, 0, PI2); x.stroke();
+      }
+    }
+  }
+  function combatCameraOverride(dt) {
+    if (!combat.active || !combat.tactical) return;
+    desiredPos.set(0, 185, 128).multiplyScalar(state.zoom)
+      .applyQuaternion(ship.quaternion).add(ship.position);
+    lookTarget.set(0, 0, -70).applyQuaternion(ship.quaternion).add(ship.position);
+    camera.position.lerp(desiredPos, 1 - Math.exp(-5 * dt));
+    upVec.set(0, 1, 0).applyQuaternion(ship.quaternion);
+    camHelper.position.copy(camera.position);
+    camHelper.up.copy(upVec);
+    camHelper.lookAt(lookTarget);
+    camera.quaternion.slerp(camHelper.quaternion, 1 - Math.exp(-7 * dt));
+    camera.fov += (60 - camera.fov) * (1 - Math.exp(-3 * dt));
+    camera.updateProjectionMatrix();
+  }
+  function combatUpdate(dt, t) {
+    if (!combat.active) { combatHook(); return; }
+    if (dt <= 0) { combatHook(); return; }
+    combat.root.visible = true;
+    combat.root.position.copy(ship.position);
+    combat.root.quaternion.copy(ship.quaternion);
+    combat.root.updateWorldMatrix(true, true);
+    cInvQ.copy(ship.quaternion).invert();
+    combat.time += dt;
+    if (combat.phase === 'fight') {
+      combatWaves();
+      combatEnemies(dt, t);
+      combatAimTurrets();
+      combatWingFire(dt);
+      combat.salvoCd = Math.max(0, combat.salvoCd - dt);
+      combat.hitFlash = Math.max(0, combat.hitFlash - dt);
+      if (combat.wave >= COMBAT_WAVES.length && combatAliveEnemies() === 0) combatFinish(true);
+      else if (combat.hull <= 0) combatFinish(false);
+      else if (combatAliveWings() === 0) combatFinish(false);
+      else if (combat.time > COMBAT_MISSION.limit) combatFinish(false);
+    } else {
+      combat.salvoCd = Math.max(0, combat.salvoCd - dt);
+    }
+    combatShots(dt);
+    combatBursts(dt);
+    combatUIAccum += dt;
+    if (combatUIAccum > 0.1) { combatUIAccum = 0; combatRefreshUI(); }
+    combatHook();
+  }
+  function combatHook() {
+    var H = window.__NS_COMBAT__;
+    H.active = combat.active; H.phase = combat.phase; H.tactical = combat.tactical;
+    H.mission = combat.mission; H.time = +combat.time.toFixed(2); H.wave = combat.wave;
+    H.kills = combat.kills; H.losses = combat.losses;
+    H.hull = +combat.hull.toFixed(1); H.shield = +combat.shield.toFixed(1);
+    H.order = combat.order; H.salvoCd = +combat.salvoCd.toFixed(2);
+    H.target = combat.target && combat.target.alive ? combat.target.name + '#' + combat.target.id : null;
+    H.enemies = combatAliveEnemies(); H.turrets = combat.turrets.length;
+    H.result = combat.result; H.wings = combatAliveWings();
+  }
+  window.__NS_COMBAT__ = {
+    active: false, phase: 'idle', tactical: false, mission: 0, time: 0, wave: 0,
+    kills: 0, losses: 0, hull: 100, shield: 100, order: 'focus', salvoCd: 0,
+    target: null, enemies: 0, turrets: 0, wings: 11, result: null,
+    start: function (m) { combatStart(m || 1); },
+    salvo: function () { var r = combatSalvo(); combatHook(); return r; },
+    cycle: function () { combatCycleTarget(); combatHook(); },
+    toggleView: function () { combatToggleTactical(); combatHook(); },
+    setOrder: function (o) { combatSetOrder(o); combatHook(); },
+    exit: function () { combatExit(); },
+    advance: function (dt, n) {
+      var k = n || 1, d = dt || 0.016, acc = combat.time;
+      for (var i = 0; i < k; i++) { acc += d; combatUpdate(d, acc); }
+      return window.__NS_COMBAT__;
+    }
+  };
+  window.__NS_TURRETS__ = { count: 0, source: 'pending', box: [] };
+
   /* ================= 主更新 ================= */
   function wrap(v, half, field) {
     if (v > half) return v - field;
@@ -2283,7 +2950,8 @@
 
     /* 星场：相对位移 + 循环包裹 */
     if (dt > 0) {
-      var dx = deltaVec.x, dy = deltaVec.y, dz = deltaVec.z;
+      var cFlow = combat.active ? (state.gear === 4 ? 0 : 0.12) : 1;
+      var dx = deltaVec.x * cFlow, dy = deltaVec.y * cFlow, dz = deltaVec.z * cFlow;
       for (var i = 0; i < STAR_N; i++) {
         var j = i * 3;
         starPos[j] = wrap(starPos[j] - dx, HALF, FIELD);
@@ -2452,6 +3120,7 @@
     var targetFov = view.fov + driveNorm * 12 + state.warp * 8;
     camera.fov += (targetFov - camera.fov) * (1 - Math.exp(-3 * dt));
     camera.updateProjectionMatrix();
+    combatCameraOverride(dt);
     window.__NS_CAM__ = {
       x: +camera.position.x.toFixed(2), y: +camera.position.y.toFixed(2),
       z: +camera.position.z.toFixed(2), upY: +upVec.y.toFixed(3),
@@ -2468,6 +3137,7 @@
 
     updateAudio();
     drawRadar(t);
+    combatUpdate(dt, t);
     hudAccum += dt;
     if (hudAccum > 0.1) { hudAccum = 0; updateHUD(); }
 
@@ -2509,6 +3179,10 @@
       state.speedC = state.targetC;
       state.warp = state.gear === 4 ? 1 : 0;
     }
+  }
+  if (qs.get('campaign') === '1') {
+    el.start.classList.add('hidden');
+    combatStart(1);
   }
   if (qs.has('formation')) {
     state.formation = clamp(parseInt(qs.get('formation'), 10) || 0, 0, FORMATIONS.length - 1);
