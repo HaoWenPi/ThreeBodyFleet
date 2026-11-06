@@ -1689,7 +1689,7 @@
   }, true);
 
   /* 程序版本：与 changelog.md / git tag vX.Y.Z 保持一致，每次发版必须同步更新。 */
-  var APP_VERSION = '1.0.3';
+  var APP_VERSION = '1.0.4';
   window.__NS_VERSION__ = APP_VERSION;
 
   window.__NS_VIEW__ = {
@@ -1976,7 +1976,7 @@
           x = handoff.from[i][0] * (1 - u) + rx * u;
           y = handoff.from[i][1] * (1 - u) + ry * u;
         }
-        ang = Math.atan2(vy, vx) * 180 / Math.PI;   // 尾迹始终背向速度
+        ang = Math.atan2(vy, vx) * 180 / Math.PI;   // 球面高光朝向随速度方向变化
         spheres[i].style.transform = 'translate(' + x.toFixed(2) + 'px,' + y.toFixed(2) +
           'px) rotate(' + ang.toFixed(1) + 'deg) scale(' + ballScale.toFixed(3) + ')';
       }
