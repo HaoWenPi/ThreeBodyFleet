@@ -1689,7 +1689,7 @@
   }, true);
 
   /* 程序版本：与 changelog.md / git tag vX.Y.Z 保持一致，每次发版必须同步更新。 */
-  var APP_VERSION = '1.0.5';
+  var APP_VERSION = '1.0.6';
   window.__NS_VERSION__ = APP_VERSION;
 
   window.__NS_VIEW__ = {
@@ -1813,7 +1813,7 @@
   B.ready = true;
   if (B.pending) enterBridge();               // 加载期间已经点过 → 就绪后自动进入
 
-  /* ---------- 开场加载圈 · 混沌平面牛顿三体（v1.0.5）----------
+  /* ---------- 开场加载圈 · 混沌平面牛顿三体（v1.0.6）----------
      三颗球 = 三个等质量质点，二维平面内只受彼此的点质量万有引力。
      · 每一对 (i,j) 只算一次力，F_ij 加到 i、F_ji = -F_ij 加到 j
        → 牛顿第三定律；总动量守恒、质心恒在原点（中心光核即质心）。
@@ -1829,14 +1829,17 @@
        球体跑远 / 能量漂移 / 非有限值也会立即触发重投。
      · 速度可视化：球尺寸、亮度、沿速度方向拉伸随瞬时速率变化，
        让「忽快忽慢」可见；不新增任何小球或尾迹。
+     · 播放速率由 LOOP_S 控制（标称一圈 3.0s，v1.0.6 由 2.15s 调慢）：
+       只缩放物理时间流速，不改 dt / 初值 / 段长 / 视觉映射，物理内核不变。
      · 渲染只做「整体旋转 45° + 等比缩放」的正交变换，不改动力学。
      · 9 MB 舰体数据解析期由纯 CSS 圆周运动兜底，JS 就绪后平滑接管。
      不改 index.html（云端版含平台标注），也不碰早绑定按钮兜底。 */
   (function initBootRing() {
+    var LOOP_S = 3.0;              // 标称「一圈」秒数：越大越慢，v1.0.6 由 2.15 调慢
     var screen = $('startscreen');
     var ring = document.querySelector('#startscreen .start-keys');
     var hook = window.__NS_BOOT__ = {
-      ready: false, spheres: 0, spread: 0, glow: 1, duration: 2.15, enters: 0,
+      ready: false, spheres: 0, spread: 0, glow: 1, duration: LOOP_S, enters: 0,
       physics: false, model: 'planar-newtonian-3body',
       chaos: true, periodic: false, softening: 0,
       G: 1, mass: 1, period: 6.32591398, dt: 0.0025,
@@ -1856,7 +1859,7 @@
     if (spheres.length < 3) return;   // DOM 被平台重排时保持纯 CSS 兜底
 
     var G = 1, MASS = 1, DT = 0.0025, T = 6.32591398;  // T 仅作时间标尺，不再是周期
-    var BASE_SPEED = T / 2.15;
+    var BASE_SPEED = T / LOOP_S;
     var CHAOS_DELTA = 0.10;          // 离开八字解稳定岛的初速度扰动
     var SEG_COUNT = 8, SEG_T = 75, WARM = 0.0006;
     var SUB_CAP = 32, SUB_K = 0.006;
@@ -1971,7 +1974,7 @@
       }
       hook.pairForces = lastPair.map(function (f) { return f.slice(); });
       hook.periods = hook.simTime / T;
-      hook.duration = 2.15 / (hook.speedScale * timeFactor);
+      hook.duration = LOOP_S / (hook.speedScale * timeFactor);
       return hook;
     }
 
@@ -2165,7 +2168,7 @@
 
     function reset() {
       hook.spread = 0; hook.glow = 1; hook.speedScale = 1;
-      hook.duration = 2.15 / timeFactor;
+      hook.duration = LOOP_S / timeFactor;
       ballScale = 1;
       ring.style.setProperty('--ns-glow', '1');
     }
@@ -2179,7 +2182,7 @@
       hook.spread = +(near * 9).toFixed(2);
       hook.glow = +(1 + near * 0.45).toFixed(3);
       hook.speedScale = +(1 + near * 0.6).toFixed(3);
-      hook.duration = +(2.15 / (hook.speedScale * timeFactor)).toFixed(3);
+      hook.duration = +(LOOP_S / (hook.speedScale * timeFactor)).toFixed(3);
       ballScale = 1 + hook.spread / 60;
       ring.style.setProperty('--ns-glow', hook.glow);
     }, { passive: true });

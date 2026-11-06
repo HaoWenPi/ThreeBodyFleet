@@ -329,7 +329,8 @@ body.compact .gearbtn.warp{min-width:84px}
   body.compact .panel.open,body.compact .hintbar.open{top:104px;max-height:calc(100vh - 190px)}
 }
 
-/* ================= 开场加载圈 · 混沌平面牛顿三体（v1.0.5）=================
+/* ================= 开场加载圈 · 混沌平面牛顿三体（v1.0.6）=================
+   v1.0.6：整体播放速率调慢，纯 CSS 兜底的一圈时长与 JS 的 LOOP_S 同步为 3s。
    三颗球是三个等质量质点，在二维平面内只受彼此的「点质量」万有引力：
    每一对力大小相等、方向相反（牛顿第三定律），由 app.js 用 velocity Verlet
    辛积分 + 近距自适应子步长推进；初值已离开八字周期解的稳定岛，进入混沌区，
@@ -369,7 +370,7 @@ body.compact .gearbtn.warp{min-width:84px}
   position:relative;width:104px;height:104px;margin:30px auto 32px;padding:0;
   border:0;font-size:0;line-height:0;color:transparent;overflow:visible;
   cursor:pointer;touch-action:manipulation;
-  animation:ns-boot-spin 2.15s cubic-bezier(.64,0,.36,1) infinite;
+  animation:ns-boot-spin 3s cubic-bezier(.64,0,.36,1) infinite;
   transition:filter .2s ease;
 }
 #startscreen .start-keys:hover{filter:brightness(1.12)}
@@ -383,7 +384,7 @@ body.compact .gearbtn.warp{min-width:84px}
   content:"";position:absolute;left:50%;top:50%;width:5px;height:5px;margin:-2.5px 0 0 -2.5px;
   border-radius:50%;background:rgba(142,242,255,.5);
   box-shadow:0 0 14px rgba(142,242,255,.55);
-  animation:ns-boot-core 2.15s ease-in-out infinite;
+  animation:ns-boot-core 3s ease-in-out infinite;
 }
 #startscreen .start-keys > div{
   position:absolute;left:50%;top:50%;width:14px;height:14px;margin:-7px 0 0 -7px;
@@ -407,7 +408,7 @@ body.compact .gearbtn.warp{min-width:84px}
 @keyframes ns-boot-spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
 @keyframes ns-boot-pulse{0%,100%{opacity:.62}45%{opacity:1}}
 @keyframes ns-boot-core{0%,100%{opacity:.35;transform:scale(.8)}50%{opacity:1;transform:scale(1.35)}}
-/* ---- JS 物理接管（v1.0.3 建立，v1.0.4 去尾迹，v1.0.5 速度可视化）----
+/* ---- JS 物理接管（v1.0.3 建立，v1.0.4 去尾迹，v1.0.5 速度可视化，v1.0.6 调慢）----
    .ns-phys 由 initBootRing() 加上：容器停止匀速公转，球体 transform / filter
    改由引力积分结果逐帧写入。transition 必须关掉，否则渲染会滞后于物理位置；
    旋转角取瞬时速度方向，球的尺寸 / 亮度 / 拉伸由瞬时速率驱动。 */
@@ -425,7 +426,7 @@ body.compact .gearbtn.warp{min-width:84px}
   }
 }
 @media (prefers-reduced-motion:reduce){
-  #startscreen .start-keys{animation-duration:6s !important}
+  #startscreen .start-keys{animation-duration:8.6s !important}
   #startscreen .start-keys > div,
   #startscreen .start-keys::after{animation:none !important}
 }
