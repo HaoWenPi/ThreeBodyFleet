@@ -132,9 +132,14 @@
 
 ### 交付对齐
 
-> 本条在发版完成后回填；量化数据以实际提交与云端终检为准。
-
 | 链路 | 标识 | 与本地源码 |
 | --- | --- | --- |
 | 本地 | `app.js` 105,373 B / md5 `7fbc933a08d59ea03e1c55ee47bf9f2b`；`style.css` 24,899 B / md5 `841f9017db75a67f5ad68ded523dd846` | — |
-| 待回填 | 见下方交付对齐补记 | — |
+| 代码提交 | `84f4bea` | 4 个文件变更 / 172 行新增 / 3 行删除；`index.html` 零改动 |
+| GitHub（主）/ Gitee（镜像）`main` | tag `v1.0.2` 指向本条回填提交 | 双端 HEAD 与 tag refs 一致 |
+| 资料库编辑态 | **v17** | `app.js` / `style.css` 与本地逐字节一致 |
+| 资料库发布态 | **v17** / CDN `1wrvzu5Mtndu` | 与编辑态逐字节一致；6 个资源 MIME 全部正确 |
+
+事务 `tx_GYTxgRkQK9QKlXXFOtMxGt`（baseVersion 16）按双向 diff 自检后**只上传 `app.js` 与 `style.css`**：`app.js` 的 PUT 带 `Content-Type: application/javascript`、`style.css` 带 `text/css`；`index.html` 未上传，发布态仍为平台注入版 25,221 B，标注 225 / 155 / 1 与 `__NS_BRIDGE__` 守恒。发布态产物已拉回本地逐字节比对，5 个 `.js` 均为 `application/javascript` 且带 `nosniff`。
+
+本版验证：加载圈无头验证 37/37 PASS（390px / 1280px 双视口、v1.0.1 CSS 反向对照可红）、手机首屏与加载空窗回归 20/20 PASS（早绑定未受影响）、`node --check` 4 个 JS 全过、`validate_bindings.py` 22/22 PASS；静态视觉截图确认三球体、按钮完整、无滚动条。
