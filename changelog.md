@@ -102,7 +102,8 @@
 | --- | --- | --- |
 | 本地 | `app.js` 103182 B / md5 `56206e80d8` | — |
 | Gitee `main` | tag `v1.0.1` | 一致 |
-| 资料库编辑态 | （发布后回填） | `app.js` 与本地逐字节一致 |
-| 资料库发布态 | （发布后回填） | 与编辑态一致 |
+| 资料库编辑态 | **v16** / `WmEE0J8lRXCQ` | `app.js` 与本地逐字节一致 |
+| 资料库发布态 | **v16** / `WmEE0J8lRXCQ`（公开版已同步） | 与编辑态一致 |
 
 本版仅改 `app.js`（`index.html` / `style.css` 未动），云端按增量事务只上传该文件，并同步发布态。
+事务 `tx_wQdbNm2wQoQwoz64avRWcO` 只上传 `app.js`（带 `Content-Type: application/javascript`）；`index.html` / `style.css` 与 v15 逐字节一致，平台标注 225 / 155 / 1 守恒。发布态拉回本地实跑 8 条断言全绿，四链路 `app.js` 103,182 B 逐字节一致，6 个资源 MIME 正确。
