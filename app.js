@@ -1439,19 +1439,36 @@
       bar.appendChild(b);
     }
   }
+  /* 版本号徽标：运行时追加到舰籍面板，复用 .kv 行样式，
+     避免改动托管平台注入过的 index.html（平台标注守恒红线）。 */
+  function ensureVersionBadge() {
+    if (document.getElementById('hud-version')) return;
+    var info = document.getElementById('ship-info');
+    if (!info) return;
+    var row = document.createElement('div');
+    row.id = 'hud-version';
+    row.className = 'kv';
+    var k = document.createElement('span');
+    k.textContent = '程序版本';
+    var v = document.createElement('b');
+    v.className = 'ok';
+    v.textContent = 'v' + APP_VERSION;
+    row.appendChild(k); row.appendChild(v);
+    info.appendChild(row);
+  }
   function injectGestureText() {
     var tbl = document.querySelector('#help-panel table');
     if (tbl && tbl.innerHTML.indexOf('双指捏合') < 0) {
       tbl.insertAdjacentHTML('beforeend',
         '<tr><td>双指捏合 / 张开</td><td>缩放画面（百分比＝画面相对默认大小）</td></tr>' +
-        '<tr><td>双指同向拖动</td><td>以自然选择号为中心环绕观察（左右 360°，上下俯仰）</td></tr>' +
+        '<tr><td>双指平移 · 间距不变</td><td>以自然选择号为中心环绕观察，不要求两指平齐（左右 360°，上下俯仰）</td></tr>' +
         '<tr><td>Shift + 鼠标拖动</td><td>桌面端同样可环绕观察舰体</td></tr>' +
         '<tr><td>触屏单指滑动</td><td>控制航向与俯仰（离中心越远转得越快）</td></tr>');
     }
     var sk = document.querySelector('.start-keys');
     if (sk && sk.innerHTML.indexOf('双指') < 0) {
       sk.insertAdjacentHTML('beforeend',
-        '<div><b>触屏</b> 单指滑动转向 · <b>双指</b> 捏合缩放 / 同向拖动环绕看舰 · 桌面 <b>Shift+拖动</b></div>');
+        '<div><b>触屏</b> 单指滑动转向 · <b>双指</b> 捏合缩放 / 间距不变平移环绕 · 桌面 <b>Shift+拖动</b></div>');
     }
   }
   function closeDocks() {
@@ -1483,7 +1500,7 @@
     return null;
   }
   function syncCompact(force) {
-    ensureDock(); ensureViewChip(); ensureToolbarButtons(); injectGestureText();
+    ensureDock(); ensureViewChip(); ensureToolbarButtons(); ensureVersionBadge(); injectGestureText();
     var q = compactQuery();
     var coarse = !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
     var auto = window.innerWidth <= 760 || (coarse && window.innerWidth <= 980);
@@ -1497,7 +1514,8 @@
     var cb = document.getElementById('btn-compact');
     if (cb) {
       cb.classList.toggle('active', c);
-      cb.title = c ? '展开 HUD 面板' : '折叠 HUD 面板为图标';
+      // 小屏面板折叠时，版本号仍可从折叠按钮的提示中查看
+      cb.title = (c ? '展开 HUD 面板' : '折叠 HUD 面板为图标') + ' · v' + APP_VERSION;
     }
   }
   function resetView() {
@@ -1537,10 +1555,22 @@
     viewChip.classList.toggle('hidden', !changed);
   }
 
-  /* 双指手势：一次手势锁定一种意图 —— 捏合改变画面大小，同向拖动绕旗舰环绕。
+  /* 双指手势：逐帧按两指间距判定意图 —— 间距在变就缩放，间距稳定就以两指中心位移环绕观察。
+     不要求两指平齐，也不把整段手势锁死在一个意图里。
      只统计落在 WebGL canvas 上的触点，HUD 按钮上的触摸不会误触发手势。 */
+  /* 指针落在可交互 UI 上时暂停「鼠标驾驶」。否则把鼠标移到屏幕边缘的档位 /
+     工具按钮准备点击，mouseNX 会被推到 ±1，航向在点击前后持续偏转。 */
+  function pointerOnUI(e) {
+    var t = e.target;
+    if (!t || !t.closest) return false;
+    return !!t.closest('button, [data-dock], #toolbar, #panel-dock, #gearbar, ' +
+                       '#hintbar, #view-chip, #startscreen, #help-panel, ' +
+                       '.start-card, .help-card');
+  }
+
   var gt = { count: 0, mode: '', startDist: 0, startCx: 0, startCy: 0,
              prevDist: 0, prevCx: 0, prevCy: 0, lastGesture: -1e6 };
+  window.__NS_GESTURE__ = gt;          // 无头验证：手势意图与两指状态
   var orbitDrag = { active: false, x: 0, y: 0 };
   /* 环绕角与拖动距离严格线性：水平一屏宽 = 360° 且可无限累加（长距离拖动不会
      提前饱和）；垂直一屏高 = 144°，只在 ±71.6° 处夹紧以防镜头与 up 轴平行。 */
@@ -1583,16 +1613,15 @@
       if (e.cancelable) e.preventDefault();     // 阻止浏览器自带的页面缩放 / 滚动
       if (gt.count !== 2) { beginGesture(pts); return; }
       var g = gesturePair(pts);
-      var base = Math.max(Math.min(window.innerWidth, window.innerHeight), 1);
-      var dRatio = Math.abs(g.d - gt.startDist) / gt.startDist;
-      var pRatio = Math.sqrt(Math.pow(g.cx - gt.startCx, 2) + Math.pow(g.cy - gt.startCy, 2)) / base;
-      if (!gt.mode && (dRatio > 0.018 || pRatio > 0.006)) {
-        gt.mode = dRatio > pRatio * 1.45 ? 'zoom' : 'orbit';
-      }
+      /* 只要识别到两指、且两指间距保持稳定，就用两指中心的位移环绕观察；
+         不要求两指平齐或完全同向，也不把整段手势锁死在一个意图里。
+         间距逐帧变化超过 1.5px 才判为捏合缩放；手指重新稳住即可继续旋转。 */
+      var dPix = Math.abs(g.d - gt.prevDist);
+      gt.mode = dPix > 1.5 ? 'zoom' : 'orbit';
       if (gt.mode === 'zoom') {
         var r = g.d / gt.prevDist;
         if (Math.abs(r - 1) > 0.001) state.zoomTarget = clamp(state.zoomTarget / r, ZOOM_MIN, ZOOM_MAX);
-      } else if (gt.mode === 'orbit') {
+      } else {
         orbitBy((g.cx - gt.prevCx) / Math.max(window.innerWidth, 1),
                 (g.cy - gt.prevCy) / Math.max(window.innerHeight, 1));
       }
@@ -1620,7 +1649,7 @@
   window.addEventListener('touchmove', onTouchMove, { passive: false });
   window.addEventListener('touchend', onTouchEnd, { passive: true });
   window.addEventListener('touchcancel', onTouchEnd, { passive: true });
-  // 桌面端：Shift + 左键拖动 = 与双指同向拖动等价的环绕观察
+  // 桌面端：Shift + 左键拖动 = 与双指平移等价的环绕观察
   renderer.domElement.addEventListener('pointerdown', function (e) {
     if (e.pointerType === 'touch' || !e.shiftKey || e.button !== 0) return;
     orbitDrag.active = true; orbitDrag.x = e.clientX; orbitDrag.y = e.clientY;
@@ -1646,6 +1675,7 @@
   window.addEventListener('click', function (e) {
     var t = e.target;
     if (!t || !t.closest) return;
+    if (pointerOnUI(e)) { state.mouseNX = 0; state.mouseNY = 0; }  // 点按钮不改变航向
     var d = t.closest('[data-dock]');
     if (d) { e.preventDefault(); e.stopPropagation(); toggleDock(d.getAttribute('data-dock')); return; }
     if (t.closest('#view-chip') || t.closest('#btn-view-reset')) {
@@ -1658,6 +1688,10 @@
     }
   }, true);
 
+  /* 程序版本：与 changelog.md / git tag vX.Y.Z 保持一致，每次发版必须同步更新。 */
+  var APP_VERSION = '1.0.1';
+  window.__NS_VERSION__ = APP_VERSION;
+
   window.__NS_VIEW__ = {
     zoom: 1, zoomTarget: 1, magnification: 1,
     orbitYaw: 0, orbitPitch: 0, orbitYawTarget: 0, orbitPitchTarget: 0,
@@ -1668,7 +1702,7 @@
   syncCompact(true);
   // 托管平台可能异步重排 DOM：低频巡检，节点被移除就重建（按 id 复用，绝不重复追加）
   window.setInterval(function () {
-    ensureDock(); ensureViewChip(); ensureToolbarButtons(); injectGestureText();
+    ensureDock(); ensureViewChip(); ensureToolbarButtons(); ensureVersionBadge(); injectGestureText();
   }, 2500);
 
   /* ================= 输入 ================= */
@@ -1701,6 +1735,10 @@
 
   window.addEventListener('mousemove', function (e) {
     if (orbitDrag.active) return;              // 桌面环绕拖动时不误改舰体姿态
+    if (pointerOnUI(e)) {                      // 指针在 UI 上：停止鼠标驾驶
+      state.mouseNX = 0; state.mouseNY = 0;
+      return;
+    }
     if (state.locked) {
       state.mouseNX = clamp(state.mouseNX + e.movementX / 260, -1, 1);
       state.mouseNY = clamp(state.mouseNY + e.movementY / 260, -1, 1);
