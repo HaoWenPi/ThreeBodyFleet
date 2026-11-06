@@ -580,4 +580,35 @@ v1.1.2 手感静态断言 **9/9**，并在无头 Edge 中**实跑 36/36 PASS**�
 
 ### 交付对齐
 
-待云端事务、发布与五链路终检完成后回填（本地 / GitHub blob / Gitee blob / 编辑态 / 发布态）。
+| 链路 | 标识 | 与本地源码 |
+| --- | --- | --- |
+| 本地 | `app.js` 176,329 B / md5 `1841da2206a031dbf36397e0f16819f6`；`style.css` 31,046 B / md5 `cdc6ef506c6ac17befb9cc8f189fb5be` | `index.html` 10,094 B 零改动 |
+| 代码提交 | `b1c24e9`（5 个文件 / 537 行新增 / 64 行删除） | `index.html` 未进入改动集 |
+| GitHub（主）/ Gitee（镜像）`main` | tag `v1.1.3` 指向本条「交付对齐」回填提交 | 双端 HEAD、默认分支、tag refs 一致；**42 个 blob SHA** 与本地全树逐一相同，`.workbuddy` 未泄漏 |
+| 资料库编辑态 | **v25**（事务 `tx_S9feVXf7VYZBgBMaeb8Ahv`，baseVersion 24） | `app.js` / `style.css` 与本地、GitHub / Gitee blob 逐字节一致 |
+| 资料库发布态 | **v25** / CDN `LJXgzSy7l5fM`（上一版 `gZlYXMox3u8G`） | 与编辑态逐字节一致；6 个资源 MIME 全部正确；平台标注 225 / 155 / 1 守恒 |
+
+事务 `tx_S9feVXf7VYZBgBMaeb8Ahv`（baseVersion 24）先把云端 v1.1.2 基线
+（`app.js` 158,679 B / `style.css` 28,865 B）拉回本地，自检确认云端基线 == `git HEAD~1`、
+本地两个 artifact == `git HEAD`、`index.html` 三个版本完全一致且本轮不上传。
+`app.js` 相对基线**删除 59 行 / 新增 400 行 / 59 个变更块**，
+`style.css` **纯追加 31 行 / 1 个变更块（0 删除）**；59 条删除行逐条核对均在预期白名单内，
+`orbitBy` 符号、`AHEAD` 梯度、蓝焰 `fy` 与光核倍率、`__NS_BRIDGE__`、`LOOP_S = 3.0`、
+`COMBAT_CRUISE_C = 0.05`、`qFleet.slerp` 等红线零触碰。随后只上传 `app.js` 与 `style.css`：
+PUT 显式带 `Content-Type: application/javascript` / `text/css`（官方脚本默认
+`application/x-www-form-urlencoded` 会被 CDN `nosniff` 拦截），`index.html` 未上传。
+提交后编辑态 / 发布态同为 **v25**，6 个资源 HEAD 校验 MIME 全对。
+
+五链路终检 `CHAIN_ALL_OK True`：本地 / GitHub blob / Gitee blob / 编辑态 / 发布态的
+`app.js`、`style.css` 逐字节相同；GitHub 与 Gitee 各 **42 个 blob SHA** 与本地全树一致
+（本轮 GitHub API 与 Gitee API 均 42/42 逐一核对）、`.workbuddy` 未泄漏；
+双端默认分支均为 `main`、tag refs 完全一致；本地工作区干净。
+
+发布态产物已拉回本地，平台标注 `data-page-node-id` 225 / `<!--pnid:` 155 / `inject.js` 1
+与 v21 的 225 个 ID 集合完全一致（旧集合 ⊆ 新集合）；空间锚定静态断言 **6/6**、
+v1.1.2 手感静态断言 **9/9**、v1.1.3 武器库 / 护盾 / 惯性静态断言 **9/9**，
+并在无头 Edge 中**实跑 40/40 PASS**：v1.1.3 版本号、战役激活、6 座运行时炮塔
+（box `[37.09, 16.47, 76]`）、首波刷怪、完整一局胜利（27.6 s / 护盾剩 30.8）、
+点 `◈` 按钮启动战役、4 张武器卡 DOM、`__NS_SHIELD__` 穹顶可见、`__NS_ATTITUDE__` 常数、
+`selectWeapon(2)` 切到鱼雷、`standoff / relC / gear / flow / fleet` 诊断钩子、
+首帧 `dt=0` 无运行时错误框，`__NS_BOOT__` / `__NS_MODEL_OK__`（60,382 面 / 10 部位）均正常。
