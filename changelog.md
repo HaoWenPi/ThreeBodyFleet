@@ -259,10 +259,12 @@
 
 | 链路 | 标识 | 与本地源码 |
 | --- | --- | --- |
-| 本地 | 待回填 | — |
-| 代码提交 | 待回填 | `index.html` 零改动 |
-| GitHub（主）/ Gitee（镜像）`main` | 待回填 | 待核验 |
-| 资料库编辑态 | 待回填 | 待核验 |
-| 资料库发布态 | 待回填 | 待核验 |
+| 本地 | `app.js` 121,511 B / md5 `cb85dd5e3e51ee60946fc0e889e87d95`；`style.css` 25,801 B / md5 `e8e21dcc4595992145514b703beda212` | — |
+| 代码提交 | `b58959c`（4 个文件 / 273 行新增 / 89 行删除） | `index.html` 10,094 B 零改动 |
+| GitHub（主）/ Gitee（镜像）`main` | tag `v1.0.5` 指向本条回填提交 | 双端 HEAD 与 tag refs 一致 |
+| 资料库编辑态 | **v20** | `app.js` / `style.css` 与本地逐字节一致 |
+| 资料库发布态 | **v20** / CDN `-DOt5WW_-V7M` | 与编辑态逐字节一致；6 个资源 MIME 全部正确 |
+
+事务 `tx_ggDUKdyccdm3IcUMETufiC`（baseVersion 19）经双向 diff 自检后**只上传 `app.js` 与 `style.css`**：`app.js` 的 PUT 带 `Content-Type: application/javascript`、`style.css` 带 `text/css`；自检确认 `app.js` 只有「版本号替换 + 开场加载圈整块替换」两处变化，块前 / 块后字节与 v1.0.4 基线完全一致，块内关键字白名单与禁用标记（尾迹规则 / 预设轨道公式）全部通过；`style.css` 开场层之前字节不变，有效规则行仅 `will-change:transform` → `will-change:transform,filter` 一处变化；`index.html` 未上传。发布态 `index.html` 仍为平台注入版 25,221 B，标注 225 / 155 / 1 与 `__NS_BRIDGE__` 守恒。发布态产物已拉回本地逐字节比对，5 个 `.js` 均为 `application/javascript`。
 
 > 本条在发版完成后回填；量化数据以实际提交与云端终检为准。
