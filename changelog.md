@@ -178,10 +178,10 @@
 
 | 链路 | 标识 | 与本地源码 |
 | --- | --- | --- |
-| 本地 | 待回填 | — |
-| 代码提交 | 待回填 | `index.html` 零改动 |
-| GitHub（主）/ Gitee（镜像）`main` | 待回填 | 待核验 |
-| 资料库编辑态 | 待回填 | 待核验 |
-| 资料库发布态 | 待回填 | 待核验 |
+| 本地 | `app.js` 115,503 B / md5 `b78ab07fb314e43bd732a68b6c33bdba`；`style.css` 25,730 B / md5 `a9a8b866548bcd80e7767dff16d55350` | — |
+| 代码提交 | `aa24652`（4 个文件 / 295 行新增 / 23 行删除） | `index.html` 10,094 B 零改动 |
+| GitHub（主）/ Gitee（镜像）`main` | tag `v1.0.3` 指向本条回填提交 | 双端 HEAD 与 tag refs 一致 |
+| 资料库编辑态 | **v18** | `app.js` / `style.css` 与本地逐字节一致 |
+| 资料库发布态 | **v18** / CDN `Ewi_cYOYwVFh` | 与编辑态逐字节一致；6 个资源 MIME 全部正确 |
 
-> 本条在发版完成后回填；量化数据以实际提交与云端终检为准。
+事务 `tx_JRjvrtdwEZdbsLli1BaOcA`（baseVersion 17）经双向 diff 自检后**只上传 `app.js` 与 `style.css`**：`app.js` 的 PUT 带 `Content-Type: application/javascript`、`style.css` 带 `text/css`；自检确认 `app.js` 在开场加载圈区块之前 / 之后的所有字节与 v1.0.2 完全一致（仅版本号替换），`style.css` 开场层之前的字节完全一致且 83 条旧规则行一条未删，`index.html` 未上传。发布态 `index.html` 仍为平台注入版 25,221 B，标注 225 / 155 / 1 与 `__NS_BRIDGE__` 守恒。发布态产物已拉回本地逐字节比对，5 个 `.js` 均为 `application/javascript` 且带 `nosniff`。
