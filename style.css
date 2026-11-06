@@ -328,6 +328,98 @@ body.compact .gearbtn.warp{min-width:84px}
   body.compact #toolbar{top:56px}
   body.compact .panel.open,body.compact .hintbar.open{top:104px;max-height:calc(100vh - 190px)}
 }
+
+/* ================= 开场加载圈 · 三球体（v1.0.2）=================
+   Windows 开机加载圈的三球体版：3 颗发光球体沿同一轨道结伴公转，缓入缓出 +
+   点阵尾迹；指针靠近时球体散开、提亮并加速，点击圈体可直接进入舰桥。
+   纯 CSS 首屏即可显示（app.js 尚未解析 9 MB 舰体数据时也已经在转），
+   app.js 就绪后追加指针交互，属渐进增强；云端 index.html 一个字都不改。
+   选择器统一带 #startscreen 前缀，确保覆盖本文件靠后的窄屏 media query。 */
+#startscreen{overflow:auto}
+#startscreen .start-card{
+  width:min(430px,92vw);padding:40px 30px 34px;
+  /* 覆盖窄屏/矮屏 media query 的 overflow:auto：旋转球体的光晕与尾迹会撑出
+     滚动区，把下方按钮裁到屏幕外。内容已精简，正常竖屏无需滚动。 */
+  max-height:none;overflow:visible;
+  background:linear-gradient(160deg,rgba(6,24,40,.86),rgba(2,10,20,.9));
+  border-color:rgba(142,242,255,.16);
+  box-shadow:0 0 90px rgba(30,130,190,.12);
+}
+#startscreen .start-card .corner{opacity:.32}
+/* 开场层只留标题 / 编号 / 一句标语 / 加载圈 / 一个按钮，操作说明留在 H 帮助面板 */
+#startscreen .start-tag,
+#startscreen .start-desc,
+#startscreen .start-foot{display:none !important}
+#startscreen .start-card h2{font-size:38px;letter-spacing:12px;margin:0 0 4px;
+  text-shadow:0 0 34px rgba(142,242,255,.45)}
+#startscreen .start-en{font-size:10px;letter-spacing:4px;color:#6fb7cd}
+#startscreen .quote{margin:15px 0 0;font-size:13px;letter-spacing:3px;color:#9dc9da}
+#startscreen #btn-start{padding:10px 30px;font-size:12px;letter-spacing:5px;
+  background:rgba(20,90,130,.32);border-color:rgba(142,242,255,.5);
+  box-shadow:0 0 18px rgba(90,220,255,.14)}
+#startscreen #btn-start:hover{background:rgba(60,180,220,.55);box-shadow:0 0 28px rgba(120,235,255,.4)}
+
+/* 原 4 行操作提示复用为轨道容器：文字隐藏、DOM 节点保留 → 平台标注零风险 */
+#startscreen .start-keys{
+  position:relative;width:104px;height:104px;margin:30px auto 32px;padding:0;
+  border:0;font-size:0;line-height:0;color:transparent;overflow:visible;
+  cursor:pointer;touch-action:manipulation;
+  animation:ns-boot-spin 2.15s cubic-bezier(.64,0,.36,1) infinite;
+  transition:filter .2s ease;
+}
+#startscreen .start-keys:hover{filter:brightness(1.12)}
+#startscreen .start-keys:active{filter:brightness(1.4)}
+#startscreen .start-keys::before{
+  content:"";position:absolute;inset:6px;border-radius:50%;
+  border:1px solid rgba(142,242,255,.17);
+  background:radial-gradient(circle at 50% 50%,rgba(80,200,255,.09),transparent 64%);
+}
+#startscreen .start-keys::after{
+  content:"";position:absolute;left:50%;top:50%;width:5px;height:5px;margin:-2.5px 0 0 -2.5px;
+  border-radius:50%;background:rgba(142,242,255,.5);
+  box-shadow:0 0 14px rgba(142,242,255,.55);
+  animation:ns-boot-core 2.15s ease-in-out infinite;
+}
+#startscreen .start-keys > div{
+  position:absolute;left:50%;top:50%;width:14px;height:14px;margin:-7px 0 0 -7px;
+  border-radius:50%;overflow:visible;font-size:0;line-height:0;color:transparent;
+  transform:rotate(var(--ns-a,0deg)) translateY(calc(-42px - var(--ns-spread,0px)));
+  transition:transform .28s cubic-bezier(.2,.8,.3,1);
+  background:radial-gradient(circle at 34% 28%,#fff 0%,#d7f7ff 30%,#7fd9f5 58%,#2b8ac4 82%,#0d3f6b 100%);
+  box-shadow:0 0 16px rgba(142,242,255,.9),0 0 34px rgba(60,170,230,.6),inset -2px -3px 5px rgba(0,20,50,.55);
+  filter:brightness(var(--ns-glow,1));
+  animation:ns-boot-pulse 1.08s ease-in-out infinite;
+}
+#startscreen .start-keys > div:nth-child(1){--ns-a:0deg;animation-delay:0s}
+#startscreen .start-keys > div:nth-child(2){--ns-a:120deg;animation-delay:.14s}
+#startscreen .start-keys > div:nth-child(3){--ns-a:240deg;animation-delay:.28s}
+/* 第 4 行及以后一律不参与：v1.0.1 的 syncCompact() 会在运行时再追加一行触屏提示，
+   用 nth-child(n+4) 兜住所有历史/未来注入，保证画面上恒为 3 颗球体。 */
+#startscreen .start-keys > div:nth-child(n+4){display:none !important}
+#startscreen .start-keys kbd{display:none}
+/* 点阵尾迹：每颗球身后 3 粒递减光点，模拟 Windows 加载圈的追尾感 */
+#startscreen .start-keys > div::after{
+  content:"";position:absolute;left:50%;top:50%;width:4px;height:4px;margin:-2px 0 0 -2px;
+  border-radius:50%;background:rgba(170,238,255,.9);
+  box-shadow:-10px 0 0 -1px rgba(170,238,255,.8),-17px 0 0 -2px rgba(160,232,255,.45);
+  filter:drop-shadow(0 0 6px rgba(142,242,255,.65));
+}
+@keyframes ns-boot-spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+@keyframes ns-boot-pulse{0%,100%{opacity:.62}45%{opacity:1}}
+@keyframes ns-boot-core{0%,100%{opacity:.35;transform:scale(.8)}50%{opacity:1;transform:scale(1.35)}}
+@media (max-width:430px){
+  #startscreen .start-card{padding:30px 20px 28px}
+  #startscreen .start-card h2{font-size:30px;letter-spacing:8px}
+  #startscreen .start-keys{width:92px;height:92px;margin:24px auto 26px}
+  #startscreen .start-keys > div{
+    transform:rotate(var(--ns-a,0deg)) translateY(calc(-36px - var(--ns-spread,0px)));
+  }
+}
+@media (prefers-reduced-motion:reduce){
+  #startscreen .start-keys{animation-duration:6s !important}
+  #startscreen .start-keys > div,
+  #startscreen .start-keys::after{animation:none !important}
+}
 /* 触摸目标下限：flex 默认会收缩把按钮压回 30px，这里显式锁定尺寸 */
 html body.compact #toolbar > button,
 html body.compact #panel-dock > button{flex:0 0 auto}

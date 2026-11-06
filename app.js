@@ -1689,7 +1689,7 @@
   }, true);
 
   /* 程序版本：与 changelog.md / git tag vX.Y.Z 保持一致，每次发版必须同步更新。 */
-  var APP_VERSION = '1.0.1';
+  var APP_VERSION = '1.0.2';
   window.__NS_VERSION__ = APP_VERSION;
 
   window.__NS_VIEW__ = {
@@ -1812,6 +1812,53 @@
   B.enter = enterBridge;
   B.ready = true;
   if (B.pending) enterBridge();               // 加载期间已经点过 → 就绪后自动进入
+
+  /* ---------- 开场加载圈的指针交互（渐进增强，v1.0.2）----------
+     圈体本体由 style.css 纯 CSS 绘制，在 9 MB 舰体数据解析完成前就已经在转；
+     这里只追加「指针靠近 → 三球散开 / 提亮 / 加速」与「点击圈体 → 进入舰桥」。
+     不改 index.html（云端版含平台标注），也不碰早绑定脚本的按钮兜底。 */
+  (function initBootRing() {
+    var screen = $('startscreen');
+    var ring = document.querySelector('#startscreen .start-keys');
+    var hook = window.__NS_BOOT__ = {
+      ready: false, spheres: 0, spread: 0, glow: 1, duration: 2.15, enters: 0
+    };
+    if (!screen || !ring) return;
+    var spheres = [].filter.call(ring.children, function (n) {
+      return n.tagName === 'DIV' && window.getComputedStyle(n).display !== 'none';
+    });
+    hook.spheres = spheres.length;
+    hook.ready = true;
+
+    function reset() {
+      ring.style.setProperty('--ns-spread', '0px');
+      ring.style.setProperty('--ns-glow', '1');
+      ring.style.animationDuration = '2.15s';
+      hook.spread = 0; hook.glow = 1; hook.duration = 2.15;
+    }
+    screen.addEventListener('pointermove', function (e) {
+      if (screen.classList.contains('hidden')) return;
+      var r = ring.getBoundingClientRect();
+      var dx = (e.clientX - (r.left + r.width / 2)) / (r.width / 2);
+      var dy = (e.clientY - (r.top + r.height / 2)) / (r.height / 2);
+      var near = 1 - Math.min(1, Math.sqrt(dx * dx + dy * dy) / 2.2);
+      var spread = +(2 + near * 9).toFixed(2);
+      var glow = +(1 + near * 0.45).toFixed(3);
+      var duration = +(2.15 - near * 0.75).toFixed(3);
+      ring.style.setProperty('--ns-spread', spread + 'px');
+      ring.style.setProperty('--ns-glow', glow);
+      ring.style.animationDuration = duration + 's';
+      hook.spread = spread; hook.glow = glow; hook.duration = duration;
+    }, { passive: true });
+    screen.addEventListener('pointerleave', reset);
+    ring.addEventListener('click', function (e) {
+      e.preventDefault();
+      hook.enters++;
+      var fn = (window.__NS_BRIDGE__ && window.__NS_BRIDGE__.enter) || enterBridge;
+      fn();
+    });
+    reset();
+  })();
 
   window.addEventListener('resize', function () {
     camera.aspect = window.innerWidth / window.innerHeight;
