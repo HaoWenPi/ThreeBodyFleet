@@ -501,4 +501,33 @@ PUT 显式带 `Content-Type: application/javascript`（官方脚本默认 `appli
 
 ### 交付对齐
 
-待云端事务、发布与五链路终检完成后回填（本地 / GitHub blob / Gitee blob / 编辑态 / 发布态）。
+| 链路 | 标识 | 与本地源码 |
+| --- | --- | --- |
+| 本地 | `app.js` 158,679 B / md5 `cf93d083ecf0cd4f6c4c24737ccbcc64`；`style.css` 28,865 B / md5 `281bef6b76d11ac1d309678cf8c52891`（本版零改动） | — |
+| 代码提交 | `d6bf910`（4 个文件 / 166 行新增 / 17 行删除） | `index.html` 10,094 B 零改动 |
+| GitHub（主）/ Gitee（镜像）`main` | tag `v1.1.2` 指向本条「交付对齐」回填提交 | 双端 HEAD、默认分支、tag refs 一致；**42 个 blob SHA** 与本地全树逐一相同，`.workbuddy` 未泄漏 |
+| 资料库编辑态 | **v24**（事务 `tx_PrNWg9oKJ9ZLQuCBc8SH5W`，baseVersion 23） | `app.js` 与本地、GitHub/Gitee blob 逐字节一致 |
+| 资料库发布态 | **v24** / CDN `gZlYXMox3u8G`（上一版 `E24m-75gIGTE`） | 与编辑态逐字节一致；6 个资源 MIME 全部正确；平台标注 225 / 155 / 1 守恒 |
+
+事务 `tx_PrNWg9oKJ9ZLQuCBc8SH5W`（baseVersion 23）先把云端 v1.1.1 基线（154,754 B）拉回本地，
+自检确认云端基线 == `git HEAD~1`、本地 `app.js` == `git HEAD`、`index.html` / `style.css`
+三个版本完全一致且本轮不上传；`app.js` 相对基线的差异为**删除 13 行 / 新增 74 行 / 24 个变更块**，
+13 条删除行逐条核对均在预期白名单内，`orbitBy` 符号、`AHEAD` 梯度、蓝焰 `fy` 与光核倍率、
+`__NS_BRIDGE__`、`LOOP_S = 3.0` 等红线零触碰。随后**只上传 `app.js`（158,679 B）**：
+PUT 显式带 `Content-Type: application/javascript`（官方脚本默认 `application/x-www-form-urlencoded`
+会被 CDN `nosniff` 拦截），`index.html` 未上传。提交后编辑态 / 发布态同为 **v24**，
+6 个资源 HEAD 校验 MIME 全对。
+
+五链路终检 `CHAIN_ALL_OK True`：本地 / GitHub blob / Gitee blob / 编辑态 / 发布态的
+`app.js`、`style.css` 逐字节相同；GitHub 与 Gitee 各 **42 个 blob SHA** 与本地全树一致
+（本轮 GitHub API 偶发 `URLError`，由双端 tree SHA `adb237df` 与本地三方一致兜底，
+Gitee API 42/42 逐一核对）、`.workbuddy` 未泄漏；双端默认分支均为 `main`、tag refs 完全一致；
+本地工作区干净。
+
+发布态产物已拉回本地，平台标注 `data-page-node-id` 225 / `<!--pnid:` 155 / `inject.js` 1
+与 v21 的 225 个 ID 集合完全一致（旧集合 ⊆ 新集合），空间锚定静态断言 **6/6**、
+v1.1.2 手感静态断言 **9/9**，并在无头 Edge 中**实跑 36/36 PASS**：v1.1.2 版本号、战役激活、
+6 座运行时炮塔（box `[37.09, 16.47, 76]`）、首波刷怪、锁定「智子探针」、完整一局胜利
+（30.1 s / 护盾剩 32）、点 `◈` 按钮启动战役、新增 `standoff / relC / gear / flow / fleet`
+诊断钩子、任务卡「接战距离」、首帧 `dt=0` 无运行时错误框，
+`__NS_BOOT__` / `__NS_MODEL_OK__`（60,382 面 / 10 部位）均正常。
