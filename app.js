@@ -1091,6 +1091,16 @@
     lagDeg: 0, driveNorm: 0, wx: 0, wy: 0, wz: 0
   };
 
+  /* 大舰操纵惯性（v1.1.3）：指令角速率不再直接驱动舰体，先经角速度低通。
+     起转有迟滞、松手有余转，才像一艘有质量的巨舰。常数只作用于姿态层，
+     不碰 orbitBy / 相机层 / 手势 / AHEAD / 推进视觉量。 */
+  var ATTITUDE = { spinUp: 0.42, coast: 1.10, yaw: 0, pitch: 0, roll: 0,
+                   cmdYaw: 0, cmdPitch: 0, cmdRoll: 0 };
+  window.__NS_ATTITUDE__ = {
+    spinUp: ATTITUDE.spinUp, coast: ATTITUDE.coast,
+    yaw: 0, pitch: 0, roll: 0, cmdYaw: 0, cmdPitch: 0, cmdRoll: 0
+  };
+
   /* ================= 状态 ================= */
   var state = {
     gear: 0, targetC: 0, speedC: 0, warp: 0,
@@ -1710,7 +1720,7 @@
   }, true);
 
   /* 程序版本：与 changelog.md / git tag vX.Y.Z 保持一致，每次发版必须同步更新。 */
-  var APP_VERSION = '1.1.2';
+  var APP_VERSION = '1.1.3';
   window.__NS_VERSION__ = APP_VERSION;
 
   window.__NS_VIEW__ = {
@@ -1732,6 +1742,12 @@
     if (!t || !t.closest) return;
     var launch = t.closest('#btn-campaign');
     if (launch) { e.preventDefault(); combatStart(1); return; }
+    var wpn = t.closest('#c-weapons [data-weapon]');
+    if (wpn && combat.active) {
+      e.preventDefault();
+      combatSelectWeapon(parseInt(wpn.getAttribute('data-weapon'), 10));
+      return;
+    }
     var act = t.closest('#combat-layer [data-act]');
     if (!act || !combat.active) return;
     e.preventDefault();
@@ -1757,6 +1773,8 @@
       }
       if (k === 'tab') { e.preventDefault(); combatCycleTarget(); combatRefreshUI(); return; }
       if (k === ' ') { e.preventDefault(); combatSalvo(); combatRefreshUI(); return; }
+      if (k === 'x') { combatSelectWeapon(combat.weapon + 1); return; }
+      if (k === 'z') { combatSelectWeapon(combat.weapon - 1); return; }
       if (k === 'c') { combatToggleTactical(); combatRefreshUI(); return; }
       if (k === 'g') { combatSetOrder('focus'); combatRefreshUI(); return; }
       if (k === 'b') { combatSetOrder('evade'); combatRefreshUI(); return; }
@@ -1771,6 +1789,8 @@
       setFormation(e.shiftKey ? -1 : 1);
     } else if (k === 'r') {
       ship.quaternion.identity();
+      ATTITUDE.yaw = ATTITUDE.pitch = ATTITUDE.roll = 0;
+      ATTITUDE.cmdYaw = ATTITUDE.cmdPitch = ATTITUDE.cmdRoll = 0;
       setGear(0, true);
       state.distanceKm = 0;
       resetView();
@@ -2292,7 +2312,12 @@
     wave: 0, waveAt: 0, result: null, log: [], hitFlash: 0,
     root: null, turretRoot: null, enemies: [], turrets: [], shots: [], bursts: [], nextId: 1,
     // 档位联动：standoff = 推演设定的接战距离（战场单位），relC = 相对巡航基准的速度差
-    standoff: 165, relC: 0, gearSeen: 2
+    standoff: 165, relC: 0, gearSeen: 2,
+    // v1.1.3 武器 / 护盾：四种武器各自独立冷却，默认 0 号能量炮，
+    // 其行为与 v1.1.2 逐字节等价（已有战斗回归的基线）。
+    weapon: 0, weaponCd: [0, 0, 0, 0], beams: [],
+    shieldMax: 100, shieldIdle: 0, shieldLock: 0, shieldHit: 0,
+    shieldOver: false, shieldState: 'online', shieldMesh: null, shieldMat: null
   };
   var COMBAT_MISSION = { name: '接触 · 智子盲区', en: 'CONTACT / SOPHON BLIND ZONE', limit: 150 };
   var COMBAT_WAVES = [
@@ -2311,6 +2336,18 @@
     probe:  { name: '智子探针', hp: 20, speed: 27, dmg: 4, cd: 2.6 },
     raider: { name: '三体拦截舰', hp: 60, speed: 16, dmg: 9, cd: 3.4 }
   };
+  /* 四种武器：能量炮均衡、激光瞬时高射速、鱼雷慢速范围重击、离子炮瘫痪控制。
+     DPS 大致相当但适用场景不同，玩家用 X / Z 或点击武器卡切换，空格发射当前武器。 */
+  var COMBAT_WEAPONS = [
+    { key: 'energy',  name: '能量炮', en: 'ENERGY CANNON', cd: 2.4,  dmg: 9,
+      hint: '6 座主炮 · 跟踪弹 · 多目标', color: '#a9f4ff' },
+    { key: 'laser',   name: '激光',   en: 'LASER ARRAY',   cd: 1.15, dmg: 4.5,
+      hint: '瞬时命中 · 单目标高射速', color: '#8dffd0' },
+    { key: 'torpedo', name: '鱼雷',   en: 'TORPEDO',       cd: 4.2,  dmg: 30,
+      hint: '慢速重弹 · 范围爆破', color: '#ffc48a' },
+    { key: 'ion',     name: '离子炮', en: 'ION CANNON',    cd: 2.9,  dmg: 6,
+      hint: '瘫痪武器 · 减速 4 s', color: '#c2a4ff' }
+  ];
   var COMBAT_UI_HTML = [
     '<div id="c-mission" class="c-card">',
     '  <div class="c-eyebrow">MISSION 01 · TACTICAL SIMULATION</div>',
@@ -2330,6 +2367,8 @@
     '  <div class="c-eyebrow">NS-01 / FLEET STATUS</div>',
     '  <div class="c-row"><span>舰体完整度</span><b id="c-hull">100%</b></div>',
     '  <div class="c-row"><span>护盾</span><b id="c-shield">100%</b></div>',
+    '  <div class="c-bar"><i id="c-shieldbar"></i></div>',
+    '  <div class="c-sub" id="c-shieldnote">能量护盾 · 在线</div>',
     '  <div class="c-row"><span>舰队指令</span><b id="c-order">集火 FOCUS</b></div>',
     '  <div class="c-bar"><i id="c-salvobar"></i></div>',
     '  <div class="c-sub" id="c-salvo">主炮齐射 · 就绪</div>',
@@ -2338,9 +2377,18 @@
     '  <div class="c-eyebrow">COMBAT LOG / 战报</div>',
     '  <div id="c-logbody"></div>',
     '</div>',
+    '<div id="c-weapons">',
+    '  <div class="w-eyebrow">WEAPON BANK / X · Z 切换 · 空格发射</div>',
+    '  <div class="w-row">',
+    '    <button type="button" class="wpn on" data-weapon="0"><span class="w-key">◆</span><span class="w-name">能量炮</span><span class="w-state">就绪</span><i class="w-cd"></i></button>',
+    '    <button type="button" class="wpn" data-weapon="1"><span class="w-key">◆</span><span class="w-name">激光</span><span class="w-state">就绪</span><i class="w-cd"></i></button>',
+    '    <button type="button" class="wpn" data-weapon="2"><span class="w-key">◆</span><span class="w-name">鱼雷</span><span class="w-state">就绪</span><i class="w-cd"></i></button>',
+    '    <button type="button" class="wpn" data-weapon="3"><span class="w-key">◆</span><span class="w-name">离子炮</span><span class="w-state">就绪</span><i class="w-cd"></i></button>',
+    '  </div>',
+    '</div>',
     '<div id="c-bar">',
     '  <button type="button" data-act="target">Tab 切目标</button>',
-    '  <button type="button" data-act="salvo">空格 齐射</button>',
+    '  <button type="button" data-act="salvo">空格 发射</button>',
     '  <button type="button" data-act="tactical">C 战术俯视</button>',
     '  <button type="button" data-act="focus">G 集火</button>',
     '  <button type="button" data-act="evade">B 规避</button>',
@@ -2369,6 +2417,48 @@
   var cMatShot = new THREE.MeshBasicMaterial({ color: 0xa9f4ff });
   var cMatEnemyShot = new THREE.MeshBasicMaterial({ color: 0xff6b6b });
   var cMatBurst = new THREE.MeshBasicMaterial({ color: 0xffd9a0, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false });
+  /* v1.1.3 新增视觉资源：全部程序化生成，零新增文件。 */
+  var cGeoTorpedo = new THREE.ConeGeometry(1.15, 4.6, 7);
+  var cMatTorpedo = new THREE.MeshBasicMaterial({ color: 0xffb066 });
+  var cGeoIon = new THREE.IcosahedronGeometry(1.7, 0);
+  var cMatIon = new THREE.MeshBasicMaterial({ color: 0xc09cff });
+  var cBeamGeo = new THREE.CylinderGeometry(1, 1, 1, 6, 1, true);
+  var cBeamUp = new THREE.Vector3(0, 1, 0);
+  var cShieldGeo = new THREE.SphereGeometry(1, 36, 26);
+  /* 能量护盾：fresnel 边缘辉光 + 程序化六边网格 + 命中涟漪 / 过载红闪。
+     挂在 turretRoot 下跟随舰体，不进 combatHullBox()（它只遍历 ship）。 */
+  var cShieldMat = new THREE.ShaderMaterial({
+    uniforms: {
+      uTime: { value: 0 }, uPower: { value: 1 }, uHit: { value: 0 },
+      uOver: { value: 0 }, uColor: { value: new THREE.Color(0x4fd8ff) }
+    },
+    vertexShader: [
+      'varying vec3 vN; varying vec3 vV; varying vec3 vP;',
+      'void main(){',
+      '  vec4 mv = modelViewMatrix * vec4(position, 1.0);',
+      '  vV = mv.xyz; vN = normalize(normalMatrix * normal); vP = position;',
+      '  gl_Position = projectionMatrix * mv;',
+      '}'
+    ].join('\n'),
+    fragmentShader: [
+      'uniform float uTime; uniform float uPower; uniform float uHit; uniform float uOver;',
+      'uniform vec3 uColor; varying vec3 vN; varying vec3 vV; varying vec3 vP;',
+      'void main(){',
+      '  vec3 V = normalize(-vV);',
+      '  float f = pow(1.0 - abs(dot(normalize(vN), V)), 2.2);',
+      '  vec3 p = normalize(vP);',
+      '  float g = sin(p.x*16.0+uTime*0.7)*sin(p.y*16.0-uTime*0.5)*sin(p.z*16.0+uTime*0.6);',
+      '  float grid = smoothstep(0.88, 1.0, abs(g));',
+      '  float ripple = uHit * (0.5 + 0.5*sin(p.y*26.0 - uTime*11.0));',
+      '  float a = (0.055 + f*0.68 + grid*0.15 + ripple*0.30) * (0.25 + 0.75*uPower)',
+      '            + uOver*0.06*(0.5 + 0.5*sin(uTime*14.0));',
+      '  vec3 col = mix(uColor, vec3(1.0,0.32,0.30), clamp(uHit*0.55 + uOver*0.5, 0.0, 1.0));',
+      '  gl_FragColor = vec4(col, clamp(a, 0.0, 0.90));',
+      '}'
+    ].join('\n'),
+    transparent: true, blending: THREE.AdditiveBlending,
+    depthWrite: false, side: THREE.DoubleSide
+  });
   var combatUIAccum = 0;
 
   /* 炮塔硬点：从真实舰体几何包围盒运行时导出，排除尾焰 / 光核等特效网格。
@@ -2425,6 +2515,14 @@
       combat.turrets.push({ group: g });
     });
     window.__NS_TURRETS__ = { count: combat.turrets.length, source: 'hull-bounds', box: [w, h, d].map(function (v) { return +v.toFixed(2); }) };
+    /* 护盾穹顶尺寸取自同一份运行时舰体包围盒，模型换了自动跟着走，禁硬编码。 */
+    var dome = new THREE.Mesh(cShieldGeo, cShieldMat);
+    dome.name = 'flagship-energy-shield';
+    dome.scale.set(w * 0.62, h * 1.15, d * 0.56);
+    dome.position.set(c.x, c.y, c.z);
+    combat.turretRoot.add(dome);
+    combat.shieldMesh = dome;
+    combat.shieldMat = cShieldMat;
   }
   function combatInitPools() {
     for (var i = 0; i < 72; i++) {
@@ -2437,16 +2535,29 @@
       b.visible = false; combat.root.add(b);
       combat.bursts.push({ mesh: b, active: false, life: 0, max: 0.45, size: 1 });
     }
+    for (var q = 0; q < 14; q++) {
+      var bm = new THREE.Mesh(cBeamGeo, new THREE.MeshBasicMaterial({
+        color: 0x9dffd8, transparent: true, opacity: 0.9,
+        blending: THREE.AdditiveBlending, depthWrite: false }));
+      bm.visible = false; combat.root.add(bm);
+      combat.beams.push({ mesh: bm, active: false, life: 0, max: 0.24 });
+    }
   }
-  function combatTakeShot(side, from, to, speed, dmg, target) {
+  function combatTakeShot(side, from, to, speed, dmg, target, opts) {
     var s = null;
     for (var i = 0; i < combat.shots.length; i++) if (!combat.shots[i].active) { s = combat.shots[i]; break; }
     if (!s) return;
+    var o = opts || {};
     cTmpD.copy(to).sub(from);
     if (cTmpD.lengthSq() < 0.01) cTmpD.set(0, 0, -1);
-    s.active = true; s.side = side; s.dmg = dmg; s.target = target || null; s.life = 4;
+    s.active = true; s.side = side; s.dmg = dmg; s.target = target || null;
+    s.life = o.life || 4;
+    s.kind = o.kind || 'bolt';
+    s.aoe = o.aoe || 0;
     s.mesh.visible = true;
-    s.mesh.material = side === 'ally' ? cMatShot : cMatEnemyShot;
+    s.mesh.geometry = o.geo || cShotGeo;
+    s.mesh.material = o.mat || (side === 'ally' ? cMatShot : cMatEnemyShot);
+    s.mesh.scale.setScalar(o.scale || 1);
     s.mesh.position.copy(from);
     s.vel.copy(cTmpD).normalize().multiplyScalar(speed);
   }
@@ -2471,10 +2582,146 @@
       b.mesh.scale.setScalar(b.size * (1.4 + (1 - k) * 3.2));
     }
   }
+  /* 炮口坐标：turretRoot 跟随舰体，弹丸活在锚定的战场空间，必须世界->战场换算。 */
+  function combatMuzzle(i, out) {
+    combat.turrets[i].group.getWorldPosition(out);
+    combat.root.worldToLocal(out);
+    return out;
+  }
+  function combatBeam(from, to, color, width) {
+    var b = null;
+    for (var i = 0; i < combat.beams.length; i++) if (!combat.beams[i].active) { b = combat.beams[i]; break; }
+    if (!b) return;
+    cTmpD.copy(to).sub(from);
+    var len = cTmpD.length();
+    if (len < 0.01) return;
+    b.active = true; b.life = b.max;
+    b.mesh.visible = true;
+    b.mesh.position.copy(from).addScaledVector(cTmpD, 0.5);
+    b.mesh.quaternion.setFromUnitVectors(cBeamUp, cTmpD.multiplyScalar(1 / len));
+    b.mesh.scale.set(width, len, width);
+    b.mesh.material.color.setHex(color);
+    b.mesh.material.opacity = 0.9;
+  }
+  function combatBeams(dt) {
+    for (var i = 0; i < combat.beams.length; i++) {
+      var b = combat.beams[i];
+      if (!b.active) continue;
+      b.life -= dt;
+      if (b.life <= 0) { b.active = false; b.mesh.visible = false; continue; }
+      b.mesh.material.opacity = 0.9 * (b.life / b.max);
+    }
+  }
+  /* 能量炮：与 v1.1.2 完全一致（6 座炮塔 / 分散多目标 / 260 速 / 2.4s 冷却）。 */
+  function combatFireEnergy(alive, dmg) {
+    for (var i = 0; i < combat.turrets.length; i++) {
+      var tgt = alive[i % alive.length];
+      // 炮塔贴舰体（turretRoot），弹丸在锚定的战场空间（root）里飞：
+      // 取炮口世界坐标再转回战场局部，转向时弹道才与画面里的敌舰对齐。
+      combat.turrets[i].group.getWorldPosition(cTmpA);
+      combat.root.worldToLocal(cTmpA);
+      cTmpB.copy(tgt.pos);
+      combatTakeShot('ally', cTmpA, cTmpB, 260, dmg, tgt);
+      combatBurst(cTmpA, 0xa9f4ff, 1.0);
+    }
+    combatLog('主炮齐射 · ' + combat.turrets.length + ' 座 → ' + alive.length + ' 个目标');
+    beep(240, 0.16, 0.08);
+  }
+  /* 激光：hitscan，无飞行时间，6 道光束瞬时汇聚到锁定目标。 */
+  function combatFireLaser(e) {
+    var spec = COMBAT_WEAPONS[1], total = 0;
+    for (var i = 0; i < combat.turrets.length; i++) {
+      combatMuzzle(i, cTmpA);
+      cTmpB.copy(e.pos);
+      combatBeam(cTmpA, cTmpB, 0x8dffd0, 0.42);
+      total += spec.dmg;
+    }
+    cTmpC.copy(e.pos);
+    combatBurst(cTmpC, 0x8dffd0, 2.2);
+    combatDamageEnemy(e, total);
+    combatLog('激光阵列 · 瞬时命中 ' + e.name + ' −' + Math.round(total));
+    beep(980, 0.09, 0.055);
+  }
+  /* 鱼雷：2 具侧舷发射管，慢速重弹，命中后对 34 单位内敌舰溅射半伤。 */
+  function combatFireTorpedo(e) {
+    var spec = COMBAT_WEAPONS[2], tubes = [2, 3];
+    for (var i = 0; i < tubes.length; i++) {
+      combatMuzzle(tubes[i], cTmpA);
+      cTmpB.copy(e.pos);
+      combatTakeShot('ally', cTmpA, cTmpB, 95, spec.dmg, e,
+                     { kind: 'torpedo', geo: cGeoTorpedo, mat: cMatTorpedo,
+                       aoe: 34, life: 7, scale: 1.4 });
+      combatBurst(cTmpA, 0xffb066, 1.6);
+    }
+    combatLog('鱼雷发射 · 2 枚 → ' + e.name + ' #' + e.id);
+    beep(160, 0.22, 0.075);
+  }
+  /* 离子炮：紫色干扰弹，命中让目标武器冷却翻倍、机动减半 4 秒。 */
+  function combatFireIon(e) {
+    var spec = COMBAT_WEAPONS[3];
+    for (var i = 0; i < combat.turrets.length; i++) {
+      combatMuzzle(i, cTmpA);
+      cTmpB.copy(e.pos);
+      combatTakeShot('ally', cTmpA, cTmpB, 175, spec.dmg, e,
+                     { kind: 'ion', geo: cGeoIon, mat: cMatIon, life: 5, scale: 1.2 });
+      combatBurst(cTmpA, 0xc09cff, 1.0);
+    }
+    combatLog('离子炮齐射 · 干扰弹 → ' + e.name + ' #' + e.id);
+    beep(420, 0.14, 0.06);
+  }
+  function combatSelectWeapon(i) {
+    if (!combat.active) return false;
+    var n = ((i % COMBAT_WEAPONS.length) + COMBAT_WEAPONS.length) % COMBAT_WEAPONS.length;
+    combat.weapon = n;
+    combat.salvoCd = combat.weaponCd[n];
+    var w = COMBAT_WEAPONS[n];
+    combatLog('武器切换 · ' + w.name + ' / ' + w.en);
+    showToast(w.name, w.en, false);
+    beep(560 + n * 90, 0.08, 0.045);
+    combatRefreshUI();
+    combatHook();
+    return true;
+  }
+  /* 旗舰能量护盾：吸收 → 脱战 3s 回充 → 归零 4s 过载锁定。 */
+  function combatShieldAbsorb(dmg) {
+    var absorbed = Math.min(combat.shield, dmg);
+    combat.shield -= absorbed;
+    var leak = (dmg - absorbed) * 0.8;
+    if (leak > 0) combat.hull = Math.max(0, combat.hull - leak);
+    combat.shieldIdle = 0;
+    combat.shieldHit = 1;
+    combat.hitFlash = 0.6;
+    if (combat.shield <= 0 && !combat.shieldOver) {
+      combat.shieldOver = true;
+      combat.shieldLock = 4.0;
+      combatLog('护盾过载 · 冷却 4 s');
+    }
+    combatLog('旗舰护盾 −' + Math.round(absorbed));
+    if (combat.hull <= 0) combatFinish(false);
+  }
+  function combatShield(dt) {
+    combat.shieldIdle += dt;
+    combat.shieldHit = Math.max(0, combat.shieldHit - dt * 2.0);
+    if (combat.shieldLock > 0) {
+      combat.shieldLock = Math.max(0, combat.shieldLock - dt);
+      combat.shieldState = 'overload';
+      if (combat.shieldLock === 0) {
+        combat.shieldOver = false;
+        combatLog('护盾重新上线 · 开始充能');
+      }
+      return;
+    }
+    if (combat.shield < combat.shieldMax && combat.shieldIdle >= 3.0) {
+      combat.shield = Math.min(combat.shieldMax, combat.shield + 5.5 * dt);
+      combat.shieldState = 'regen';
+    } else {
+      combat.shieldState = combat.shield <= 0 ? 'offline' : 'online';
+    }
+  }
   function combatSpawn(kind, idx, total) {
     var spec = COMBAT_SPEC[kind];
     var mesh = new THREE.Mesh(kind === 'probe' ? cGeoProbe : cGeoRaider,
-                              kind === 'probe' ? cMatProbe : cMatRaider);
+                              (kind === 'probe' ? cMatProbe : cMatRaider).clone());
     var ang = (idx / Math.max(total, 1)) * PI2 + Math.random() * 0.6;
     var pos = new THREE.Vector3(
       Math.cos(ang) * (70 + Math.random() * 90),
@@ -2486,7 +2733,8 @@
     var e = {
       id: combat.nextId++, kind: kind, name: spec.name, hp: spec.hp, maxHp: spec.hp,
       pos: pos, mesh: mesh, alive: true, cd: 0.6 + Math.random() * 1.2,
-      seed: Math.random() * 10, orbit: ang
+      seed: Math.random() * 10, orbit: ang, ion: 0,
+      baseEmissive: kind === 'probe' ? 0x2ba7d8 : 0xa02a2a
     };
     combat.enemies.push(e);
     return e;
@@ -2542,46 +2790,40 @@
     for (var i = 0; i < wings.length; i++) if (wings[i].combatHp > 0) alive.push(wings[i]);
     if (alive.length && Math.random() < 0.45) {
       var w = alive[Math.floor(Math.random() * alive.length)];
-      w.combatHp -= dmg * 1.6;
+      var soak = Math.min(w.shield, dmg * 1.6);
+      w.shield -= soak;
+      w.combatHp -= dmg * 1.6 - soak;
       cTmpA.copy(w.pos);
       combat.root.worldToLocal(cTmpA);
-      combatBurst(cTmpA, 0xff8b6b, 2.2);
+      combatBurst(cTmpA, soak > 0 ? 0x7fe7ff : 0xff8b6b, 2.2);
       if (w.combatHp <= 0) { w.group.visible = false; combat.losses++; combatLog('僚舰失联 · 舰队 −1'); }
-      else combatLog('僚舰受击 · 完整度 ' + Math.round(w.combatHp) + '%');
-    } else if (combat.shield > 0) {
-      combat.shield = Math.max(0, combat.shield - dmg);
-      combatLog('旗舰护盾 −' + Math.round(dmg));
+      else combatLog(soak > 0 ? '僚舰护盾 −' + Math.round(soak)
+                              : '僚舰受击 · 完整度 ' + Math.round(w.combatHp) + '%');
     } else {
-      combat.hull = Math.max(0, combat.hull - dmg * 0.8);
-      combatLog('旗舰舰体 −' + Math.round(dmg * 0.8));
+      combatShieldAbsorb(dmg);
     }
     combat.hitFlash = 0.6;
     if (combat.hull <= 0) combatFinish(false);
   }
   function combatSalvo() {
-    if (!combat.active || combat.phase !== 'fight' || combat.salvoCd > 0) return false;
+    if (!combat.active || combat.phase !== 'fight' || combat.weaponCd[combat.weapon] > 0) return false;
     var e = combat.target && combat.target.alive ? combat.target : combatPickTarget();
     if (!e) return false;
     combat.target = e;
-    combat.salvoCd = 2.4;
+    var spec = COMBAT_WEAPONS[combat.weapon];
+    combat.weaponCd[combat.weapon] = spec.cd;
+    combat.salvoCd = spec.cd;
     var alive = [];
     for (var k = 0; k < combat.enemies.length; k++) if (combat.enemies[k].alive) alive.push(combat.enemies[k]);
     var first = alive.indexOf(e);
     if (first > 0) { alive.splice(first, 1); alive.unshift(e); }
-    var dmg = combat.order === 'focus' ? 12 : 9;
-    for (var i = 0; i < combat.turrets.length; i++) {
-      var tgt = alive[i % alive.length];
-      // 炮塔贴舰体（turretRoot），弹丸在锚定的战场空间（root）里飞：
-      // 取炮口世界坐标再转回战场局部，转向时弹道才与画面里的敌舰对齐。
-      combat.turrets[i].group.getWorldPosition(cTmpA);
-      combat.root.worldToLocal(cTmpA);
-      cTmpB.copy(tgt.pos);
-      combatTakeShot('ally', cTmpA, cTmpB, 260, dmg, tgt);
-      combatBurst(cTmpA, 0xa9f4ff, 1.0);
-    }
-    combatLog('主炮齐射 · ' + combat.turrets.length + ' 座 → ' + alive.length + ' 个目标');
+    if (spec.key === 'energy') combatFireEnergy(alive, combat.order === 'focus' ? 12 : 9);
+    else if (spec.key === 'laser') combatFireLaser(e);
+    else if (spec.key === 'torpedo') combatFireTorpedo(e);
+    else combatFireIon(e);
     initAudio();
-    beep(240, 0.16, 0.08);
+    combatRefreshUI();
+    combatHook();
     return true;
   }
   function combatEnemyFire(e, spec) {
@@ -2610,10 +2852,12 @@
       var dist = e.pos.length();
       // 轨道半径随接战距离联动：换档后敌阵整体逼近 / 退开，而不是永远钉在 165。
       var so = combat.standoff;
+      if (e.ion > 0) e.ion = Math.max(0, e.ion - dt);
+      var ionSlow = e.ion > 0 ? 0.45 : 1;
       if (dist > so) {
-        e.pos.addScaledVector(e.pos, -spec.speed * dt / dist);
+        e.pos.addScaledVector(e.pos, -spec.speed * ionSlow * dt / dist);
       } else {
-        e.orbit += dt * (e.kind === 'probe' ? 0.55 : 0.32);
+        e.orbit += dt * (e.kind === 'probe' ? 0.55 : 0.32) * ionSlow;
         var rr = so + Math.sin(t * 0.7 + e.seed) * 22;
         e.pos.set(Math.cos(e.orbit) * rr * 0.72,
                   Math.sin(t * 0.5 + e.seed) * 26,
@@ -2622,9 +2866,10 @@
       e.mesh.position.copy(e.pos);
       e.mesh.rotation.y += dt * 1.2;
       e.mesh.rotation.x += dt * 0.5;
+      e.mesh.material.emissive.setHex(e.ion > 0 ? 0x8a5cff : e.baseEmissive);
       e.cd -= dt;
       if (e.cd <= 0) {
-        e.cd = spec.cd * (0.8 + Math.random() * 0.4);
+        e.cd = spec.cd * (e.ion > 0 ? 1.8 : 1) * (0.8 + Math.random() * 0.4);
         combatEnemyFire(e, spec);
       }
     }
@@ -2641,22 +2886,45 @@
       if (!s.active) continue;
       s.life -= dt;
       if (s.life <= 0) { s.active = false; s.mesh.visible = false; continue; }
+      // 非能量炮弹丸在目标被击毁后重新锁定，不会白飞一场。
+      if (s.side === 'ally' && s.kind !== 'bolt' && s.target && !s.target.alive) {
+        s.target = combatPickTarget();
+      }
       if (s.side === 'ally' && s.target && s.target.alive) {
         cTmpA.copy(s.target.pos).sub(s.mesh.position);
         var d = cTmpA.length();
-        if (d < 16) {
-          combatDamageEnemy(s.target, s.dmg);
-          combatBurst(s.mesh.position, 0xa9f4ff, 1.6);
+        if (d < (s.kind === 'torpedo' ? 20 : 16)) {
+          if (s.kind === 'torpedo') {
+            combatDamageEnemy(s.target, s.dmg);
+            for (var a = 0; a < combat.enemies.length; a++) {
+              var o = combat.enemies[a];
+              if (o.alive && o !== s.target && o.pos.distanceTo(s.mesh.position) < s.aoe) {
+                combatDamageEnemy(o, s.dmg * 0.5);
+              }
+            }
+            combatBurst(s.mesh.position, 0xffb066, 5.0);
+          } else if (s.kind === 'ion') {
+            s.target.ion = 4.0;
+            combatDamageEnemy(s.target, s.dmg);
+            combatBurst(s.mesh.position, 0xc09cff, 2.4);
+            combatLog('离子干扰 · ' + s.target.name + ' 武器与机动受抑 4 s');
+          } else {
+            combatDamageEnemy(s.target, s.dmg);
+            combatBurst(s.mesh.position, 0xa9f4ff, 1.6);
+          }
           s.active = false; s.mesh.visible = false;
           continue;
         }
         cTmpA.multiplyScalar(1 / d).multiplyScalar(s.vel.length());
-        s.vel.lerp(cTmpA, Math.min(1, dt * 2.2));
+        s.vel.lerp(cTmpA, Math.min(1, dt * (s.kind === 'torpedo' ? 1.5 : 2.2)));
       } else if (s.side === 'enemy' && s.mesh.position.lengthSq() < 900) {
         combatDamageFleet(s.dmg);
         combatBurst(s.mesh.position, 0xff8b6b, 2.0);
         s.active = false; s.mesh.visible = false;
         continue;
+      }
+      if (s.kind !== 'bolt') {
+        s.mesh.quaternion.setFromUnitVectors(cBeamUp, cTmpD.copy(s.vel).normalize());
       }
       s.mesh.position.addScaledVector(s.vel, dt);
     }
@@ -2723,15 +2991,23 @@
     set('c-standoff', (combat.standoff / 10).toFixed(1) + ' 千 km');
     set('c-hull', Math.round(combat.hull) + '%');
     set('c-shield', Math.round(combat.shield) + '%');
+    var shBar = document.getElementById('c-shieldbar');
+    if (shBar) shBar.style.width = (clamp(combat.shield / combat.shieldMax * 100, 0, 100)).toFixed(0) + '%';
+    var shNote = document.getElementById('c-shieldnote');
+    var shLabel = combat.shieldState === 'overload' ? '过载 · 重新充能'
+      : combat.shieldState === 'regen' ? '充能中 · +5.5%/s'
+      : combat.shield <= 0 ? '离线' : '在线 · 吸收伤害';
+    if (shNote) shNote.textContent = '能量护盾 · ' + shLabel;
+    var wSpec = COMBAT_WEAPONS[combat.weapon];
     set('c-order', combat.order === 'focus' ? '集火 FOCUS' : '规避 EVADE');
     set('c-salvo', combat.salvoCd > 0.05
-      ? '主炮充能 ' + combat.salvoCd.toFixed(1) + ' s'
-      : '主炮齐射 · 就绪（空格）');
+      ? wSpec.name + '充能 ' + combat.salvoCd.toFixed(1) + ' s · ' + wSpec.hint
+      : wSpec.name + ' · 就绪（空格）· ' + wSpec.hint);
     var tb = document.getElementById('c-tbar');
     if (tb) tb.style.width = (combat.target && combat.target.alive
       ? clamp(combat.target.hp / combat.target.maxHp * 100, 0, 100) : 0).toFixed(0) + '%';
     var sb = document.getElementById('c-salvobar');
-    if (sb) sb.style.width = clamp((1 - combat.salvoCd / 2.4) * 100, 0, 100).toFixed(0) + '%';
+    if (sb) sb.style.width = clamp((1 - combat.salvoCd / wSpec.cd) * 100, 0, 100).toFixed(0) + '%';
     var hit = document.getElementById('c-hit');
     if (hit) hit.style.opacity = combat.hitFlash > 0 ? String(clamp(combat.hitFlash, 0, 0.6)) : '0';
     var lg = document.getElementById('c-logbody');
@@ -2741,6 +3017,15 @@
       var b = document.querySelector('#c-bar [data-act="' + p[0] + '"]');
       if (b) b.classList.toggle('on', !!p[1]);
     });
+    for (var wi = 0; wi < COMBAT_WEAPONS.length; wi++) {
+      var wb = document.querySelector('#c-weapons [data-weapon="' + wi + '"]');
+      if (!wb) continue;
+      wb.classList.toggle('on', wi === combat.weapon);
+      var wcd = wb.querySelector('.w-cd');
+      if (wcd) wcd.style.width = clamp((1 - combat.weaponCd[wi] / COMBAT_WEAPONS[wi].cd) * 100, 0, 100).toFixed(0) + '%';
+      var wst = wb.querySelector('.w-state');
+      if (wst) wst.textContent = combat.weaponCd[wi] > 0.05 ? combat.weaponCd[wi].toFixed(1) + 's' : '就绪';
+    }
     var R = document.getElementById('c-result');
     if (R) {
       if (combat.phase === 'result') {
@@ -2759,6 +3044,11 @@
     combat.order = 'focus'; combat.target = null; combat.result = null;
     combat.tactical = false; combat.log = []; combat.hitFlash = 0;
     combat.nextId = 1; combatUIAccum = 0;
+    combat.weapon = 0; combat.weaponCd = [0, 0, 0, 0]; combat.salvoCd = 0;
+    combat.shield = combat.shieldMax; combat.shieldIdle = 0; combat.shieldLock = 0;
+    combat.shieldHit = 0; combat.shieldOver = false; combat.shieldState = 'online';
+    ATTITUDE.yaw = ATTITUDE.pitch = ATTITUDE.roll = 0;
+    ATTITUDE.cmdYaw = ATTITUDE.cmdPitch = ATTITUDE.cmdRoll = 0;
     for (var i = 0; i < combat.enemies.length; i++) combat.root && combat.root.remove(combat.enemies[i].mesh);
     combat.enemies.length = 0;
     if (!combat.root) {
@@ -2782,14 +3072,15 @@
     combat.turretRoot.visible = true;
     for (var s = 0; s < combat.shots.length; s++) { combat.shots[s].active = false; combat.shots[s].mesh.visible = false; }
     for (var b = 0; b < combat.bursts.length; b++) { combat.bursts[b].active = false; combat.bursts[b].mesh.visible = false; }
-    wings.forEach(function (w) { w.combatHp = 100; w.group.visible = true; });
+    for (var bm = 0; bm < combat.beams.length; bm++) { combat.beams[bm].active = false; combat.beams[bm].mesh.visible = false; }
+    wings.forEach(function (w) { w.combatHp = 100; w.shield = 30; w.group.visible = true; });
     var st = $('startscreen'); if (st) st.classList.add('hidden');
     setGear(2, true);
     state.targetC = 0.05; state.speedC = 0.05; state.warp = 0;
     state.mouseNX = 0; state.mouseNY = 0;
     combat.standoff = 165; combat.relC = 0; combat.gearSeen = 2;
     combatLog('任务 01 · ' + COMBAT_MISSION.name + ' · 战术推演启动');
-    combatLog('Tab 切目标 / 空格齐射 / C 战术俯视 / G 集火 / B 规避');
+    combatLog('Tab 切目标 / 空格发射 / X Z 换武器 / C 俯视 / G 集火 / B 规避');
     showToast('战术推演 · 接敌', COMBAT_MISSION.en, false);
     initAudio();
     beep(520, 0.16, 0.07);
@@ -2803,9 +3094,10 @@
     combat.enemies.length = 0;
     for (var s = 0; s < combat.shots.length; s++) { combat.shots[s].active = false; combat.shots[s].mesh.visible = false; }
     for (var b = 0; b < combat.bursts.length; b++) { combat.bursts[b].active = false; combat.bursts[b].mesh.visible = false; }
+    for (var bm = 0; bm < combat.beams.length; bm++) { combat.beams[bm].active = false; combat.beams[bm].mesh.visible = false; }
     if (combat.root) combat.root.visible = false;
     if (combat.turretRoot) combat.turretRoot.visible = false;
-    wings.forEach(function (w) { w.combatHp = 100; w.group.visible = true; });
+    wings.forEach(function (w) { w.combatHp = 100; w.shield = 30; w.group.visible = true; });
     document.body.classList.remove('combat-on');
     var L = document.getElementById('combat-layer'); if (L) L.classList.add('hidden');
     combat.target = null;
@@ -2891,6 +3183,11 @@
     combat.turretRoot.updateWorldMatrix(true, true);
     combat.root.updateWorldMatrix(true, true);
     combat.time += dt;
+    for (var wi2 = 0; wi2 < combat.weaponCd.length; wi2++) {
+      combat.weaponCd[wi2] = Math.max(0, combat.weaponCd[wi2] - dt);
+    }
+    combat.salvoCd = combat.weaponCd[combat.weapon];
+    combatShield(dt);
     /* 档位 → 相对速度 → 接战距离：state.speedC 由 setGear 平滑，这里再过渡一层，
        换档时敌阵不会瞬移。加速主动接敌（距离缩短 / 星流变急），减速脱离。 */
     var relTarget = state.speedC - COMBAT_CRUISE_C;
@@ -2908,17 +3205,23 @@
       combatEnemies(dt, t);
       combatAimTurrets();
       combatWingFire(dt);
-      combat.salvoCd = Math.max(0, combat.salvoCd - dt);
       combat.hitFlash = Math.max(0, combat.hitFlash - dt);
       if (combat.wave >= COMBAT_WAVES.length && combatAliveEnemies() === 0) combatFinish(true);
       else if (combat.hull <= 0) combatFinish(false);
       else if (combatAliveWings() === 0) combatFinish(false);
       else if (combat.time > COMBAT_MISSION.limit) combatFinish(false);
     } else {
-      combat.salvoCd = Math.max(0, combat.salvoCd - dt);
     }
     combatShots(dt);
     combatBursts(dt);
+    combatBeams(dt);
+    if (combat.shieldMat) {
+      var su = combat.shieldMat.uniforms;
+      su.uTime.value = t;
+      su.uPower.value = clamp(combat.shield / combat.shieldMax, 0, 1);
+      su.uHit.value = combat.shieldHit;
+      su.uOver.value = combat.shieldOver ? 1 : 0;
+    }
     combatUIAccum += dt;
     if (combatUIAccum > 0.1) { combatUIAccum = 0; combatRefreshUI(); }
     combatHook();
@@ -2936,17 +3239,34 @@
     H.standoff = +combat.standoff.toFixed(2);
     H.relC = +combat.relC.toFixed(4);
     H.gear = state.gear;
+    H.weapon = combat.weapon;
+    H.weaponKey = COMBAT_WEAPONS[combat.weapon].key;
+    H.weaponCd = combat.weaponCd.map(function (v) { return +v.toFixed(2); });
+    H.beams = combat.beams.filter(function (b) { return b.active; }).length;
+    H.shieldState = combat.shieldState;
+    var SH = window.__NS_SHIELD__;
+    SH.power = +clamp(combat.shield / combat.shieldMax, 0, 1).toFixed(3);
+    SH.state = combat.shieldState;
+    SH.idle = +combat.shieldIdle.toFixed(2);
+    SH.lock = +combat.shieldLock.toFixed(2);
+    SH.hit = +combat.shieldHit.toFixed(2);
+    SH.overload = combat.shieldOver;
+    SH.mesh = !!combat.shieldMesh && combat.shieldMesh.visible;
   }
   window.__NS_COMBAT__ = {
     active: false, phase: 'idle', tactical: false, mission: 0, time: 0, wave: 0,
     kills: 0, losses: 0, hull: 100, shield: 100, order: 'focus', salvoCd: 0,
     target: null, enemies: 0, turrets: 0, wings: 11, result: null,
     standoff: 165, relC: 0, gear: 0,
+    weapon: 0, weaponKey: 'energy', weaponCd: [0, 0, 0, 0], beams: 0,
+    shieldState: 'online',
     start: function (m) { combatStart(m || 1); },
     salvo: function () { var r = combatSalvo(); combatHook(); return r; },
     cycle: function () { combatCycleTarget(); combatHook(); },
     toggleView: function () { combatToggleTactical(); combatHook(); },
     setOrder: function (o) { combatSetOrder(o); combatHook(); },
+    selectWeapon: function (i) { var r = combatSelectWeapon(i); combatHook(); return r; },
+    weapons: COMBAT_WEAPONS.map(function (w) { return w.key; }),
     exit: function () { combatExit(); },
     advance: function (dt, n) {
       var k = n || 1, d = dt || 0.016, acc = combat.time;
@@ -2954,6 +3274,8 @@
       return window.__NS_COMBAT__;
     }
   };
+  window.__NS_SHIELD__ = { power: 1, state: 'online', idle: 0, lock: 0,
+                           hit: 0, overload: false, mesh: false, regen: 5.5 };
   window.__NS_TURRETS__ = { count: 0, source: 'pending', box: [] };
 
   /* ================= 主更新 ================= */
@@ -2971,32 +3293,51 @@
     state.orbitYaw += (state.orbitYawTarget - state.orbitYaw) * gs;
     state.orbitPitch += (state.orbitPitchTarget - state.orbitPitch) * gs;
     var driveNorm = clamp(state.speedC / 0.1, 0, 1);   // 线性档位量：0.25 / 0.50 / 0.75 / 1.00
-    /* 姿态控制 */
-    if (!state.helpOpen && !state.paused) {
+    /* 姿态控制：A/D/W/S/Q/E 与鼠标先给出「指令角速率」，再由角动量低通驱动舰体。
+       起转时间常数 0.42s（推力建立），松手余转 1.10s（惯性滑行）——松手后舰体
+       继续转一小段再停，而不是瞬间定住。暂停 / 帮助打开时整层冻结，不偷偷漂移。 */
+    var attitudeActive = !state.helpOpen && !state.paused;
+    if (attitudeActive) {
       var yaw = 0, pit = 0, rol = 0;
-      if (keys['a'] || keys['arrowleft']) yaw += 0.60;
-      if (keys['d'] || keys['arrowright']) yaw -= 0.60;
-      if (keys['w'] || keys['arrowup']) pit -= 0.46;
-      if (keys['s'] || keys['arrowdown']) pit += 0.46;
-      if (keys['q']) rol += 0.85;
-      if (keys['e']) rol -= 0.85;
+      if (keys['a'] || keys['arrowleft']) yaw += 0.54;
+      if (keys['d'] || keys['arrowright']) yaw -= 0.54;
+      if (keys['w'] || keys['arrowup']) pit -= 0.40;
+      if (keys['s'] || keys['arrowdown']) pit += 0.40;
+      if (keys['q']) rol += 0.62;
+      if (keys['e']) rol -= 0.62;
       if (autoRoll) rol += 0.6;          // ?roll=1 用于演示滚转时的编队甩动
       var dead = 0.07;
       var mx = Math.abs(state.mouseNX) > dead
         ? Math.sign(state.mouseNX) * (Math.abs(state.mouseNX) - dead) / (1 - dead) : 0;
       var my = Math.abs(state.mouseNY) > dead
         ? Math.sign(state.mouseNY) * (Math.abs(state.mouseNY) - dead) / (1 - dead) : 0;
-      yaw += -mx * 0.85;
-      pit += -my * 0.62;
+      yaw += -mx * 0.58;
+      pit += -my * 0.42;
       if (state.locked) {
         state.mouseNX *= Math.exp(-3.2 * dt);
         state.mouseNY *= Math.exp(-3.2 * dt);
       }
       var authority = 1 - state.warp * 0.52;   // 高速时机动性下降
-      qYaw.setFromAxisAngle(AXIS_Y, yaw * authority * dt);
-      qPitch.setFromAxisAngle(AXIS_X, pit * authority * dt);
-      qRoll.setFromAxisAngle(AXIS_Z, rol * authority * dt);
+      ATTITUDE.cmdYaw = yaw * authority;
+      ATTITUDE.cmdPitch = pit * authority;
+      ATTITUDE.cmdRoll = rol * authority;
+      var kUp = 1 - Math.exp(-dt / ATTITUDE.spinUp);
+      var kDown = 1 - Math.exp(-dt / ATTITUDE.coast);
+      ATTITUDE.yaw += (ATTITUDE.cmdYaw - ATTITUDE.yaw) *
+        (Math.abs(ATTITUDE.cmdYaw) > Math.abs(ATTITUDE.yaw) ? kUp : kDown);
+      ATTITUDE.pitch += (ATTITUDE.cmdPitch - ATTITUDE.pitch) *
+        (Math.abs(ATTITUDE.cmdPitch) > Math.abs(ATTITUDE.pitch) ? kUp : kDown);
+      ATTITUDE.roll += (ATTITUDE.cmdRoll - ATTITUDE.roll) *
+        (Math.abs(ATTITUDE.cmdRoll) > Math.abs(ATTITUDE.roll) ? kUp : kDown);
+      qYaw.setFromAxisAngle(AXIS_Y, ATTITUDE.yaw * dt);
+      qPitch.setFromAxisAngle(AXIS_X, ATTITUDE.pitch * dt);
+      qRoll.setFromAxisAngle(AXIS_Z, ATTITUDE.roll * dt);
       ship.quaternion.multiply(qYaw).multiply(qPitch).multiply(qRoll).normalize();
+      var AH = window.__NS_ATTITUDE__;
+      AH.yaw = +ATTITUDE.yaw.toFixed(5); AH.pitch = +ATTITUDE.pitch.toFixed(5);
+      AH.roll = +ATTITUDE.roll.toFixed(5);
+      AH.cmdYaw = +ATTITUDE.cmdYaw.toFixed(5); AH.cmdPitch = +ATTITUDE.cmdPitch.toFixed(5);
+      AH.cmdRoll = +ATTITUDE.cmdRoll.toFixed(5);
     }
 
     // 旗舰角速度 → 机动强度，驱动编队扰动与姿态滞后

@@ -5,7 +5,7 @@
 **纯静态、零后端、无需登录；本地运行时完全离线。** 所有依赖都在仓库里，双击 `index.html` 即可离线运行。
 
 - 在线试玩：https://www.workbuddy.link/p/Ipkm3BuUttxgpr9CywzevY
-- 当前程序版本：**v1.1.2**（HUD 左上角「舰籍信息」面板显示；模型包自身的 `1.0.0` 与之独立）
+- 当前程序版本：**v1.1.3**（HUD 左上角「舰籍信息」面板显示；模型包自身的 `1.0.0` 与之独立）
 - 许可证：Apache-2.0，见 [LICENSE](LICENSE)
 - 版本变更记录：[changelog.md](changelog.md)
 
@@ -117,7 +117,8 @@ python -m http.server 8000
 | 输入 | 作用 |
 | --- | --- |
 | `Tab` · 点「切目标」按钮 | 在存活敌舰间切换锁定目标 |
-| `空格` · 点「齐射」按钮 | 6 座主炮齐射（冷却 2.4 s，弹丸自动分散到多个目标） |
+| `空格` · 点「发射」按钮 | 发射当前武器；默认能量炮为 6 座主炮齐射（冷却 2.4 s，弹丸自动分散到多个目标） |
+| `X` / `Z` · 点武器卡 | 切换下一 / 上一件武器（能量炮 / 激光 / 鱼雷 / 离子炮，各自独立冷却） |
 | `C` · 点「战术俯视」按钮 | 切换斜俯视战术机位；此模式下鼠标不再操舵，点击画面可点选敌舰 |
 | `G` / `B` | 舰队指令：集火 FOCUS（伤害更高、僚舰还击更快）/ 规避 EVADE（降低敌弹命中） |
 | `Esc` | 退出战役回到自由航行；结算后 `Enter` 再来一次 |
@@ -135,7 +136,19 @@ python -m http.server 8000
 编队航向不再与旗舰姿态刚性绑定：旗舰改航向时 11 艘僚舰保留原航向惯性、被转弯离心侧偏甩开，
 再按各自刚度 / 阻尼 / 转向速率走弧线归队，高速巡航时整队转向更迟钝。
 
-敌舰血条与锁定框、弹道、命中爆炸、护盾波纹、受击红闪、战报、雷达红点与结算面板共同构成
+**旗舰有巨舰惯性**：转向指令先经角速度低通（起转 0.42 s、松手余转 1.10 s），
+按下后要慢慢起转、松开后还会继续滑行一小段才停，不再一帧定住。
+
+**四种武器各有所长**：能量炮均衡、可分散打多目标；激光瞬时命中、射速最快但只打锁定目标；
+鱼雷慢速重弹、命中有范围溅射；离子炮瘫痪目标武器与机动 4 秒。武器卡显示各自冷却，
+`X` / `Z` 循环切换、点击武器卡直选，`空格` 发射当前武器。四者 DPS 大致相当，靠场景做取舍。
+
+**能量护盾**：舰体外有一层程序化生成的青蓝色穹顶（fresnel 边缘辉光 + 网格 + 命中涟漪），
+尺寸由真实舰体包围盒运行时导出。护盾先吸收伤害、溢出才伤舰体；脱战 3 秒后以 5.5%/s 回充，
+被打破会进入 4 秒过载锁定并泛红。僚舰也各有 30 点护盾。状态卡显示护盾百分比、进度条与
+「在线 / 充能中 / 过载 / 离线」状态。
+
+敌舰血条与锁定框、弹道 / 光束、命中爆炸、护盾穹顶与命中涟漪、受击红闪、战报、雷达红点与结算面板共同构成
 「看得见的战斗」。旗舰 6 座炮塔的硬点由真实舰体网格包围盒**运行时导出**，不硬编码坐标；
 11 艘僚舰各有完整度、会受击失联。完整剧情四关、阵型战术加成、localStorage 进度、
 移动端完整适配与战斗音效属后续版本。
@@ -208,8 +221,8 @@ python tools/validate_bindings.py --root models/NaturalSelection-Structured
 
 `validate_bindings.py` 会读真实 GLB accessor 与 PNG 做 22 项产物级校验（含反向验证），不只读 manifest。
 
-页面暴露了一批只读诊断钩子，便于无头浏览器验证：`__NS_VERSION__` / `__NS_VIEW__` / `__NS_VIEW_STATE__` / `__NS_GESTURE__` / `__NS_BRIDGE__` / `__NS_MODEL_OK__` / `__NS_DRIVE__` / `__NS_FLAME__` / `__NS_CAM__` / `__NS_AUDIO__` / `__NS_NOZZLES__` / `__NS_NOZZLE_FX__` / `__NS_HULL_STRUCTURED__` / `__NS_COMBAT__` / `__NS_TURRETS__` / `__NS_FLEET__`。
-`__NS_COMBAT__` 另提供 `start / salvo / cycle / toggleView / setOrder / advance(dt,n) / exit` 便于无头验证（同步推进战斗逻辑，不依赖 rAF）。
+页面暴露了一批只读诊断钩子，便于无头浏览器验证：`__NS_VERSION__` / `__NS_VIEW__` / `__NS_VIEW_STATE__` / `__NS_GESTURE__` / `__NS_BRIDGE__` / `__NS_MODEL_OK__` / `__NS_DRIVE__` / `__NS_FLAME__` / `__NS_CAM__` / `__NS_AUDIO__` / `__NS_NOZZLES__` / `__NS_NOZZLE_FX__` / `__NS_HULL_STRUCTURED__` / `__NS_COMBAT__` / `__NS_TURRETS__` / `__NS_FLEET__` / `__NS_ATTITUDE__` / `__NS_SHIELD__`。
+`__NS_COMBAT__` 另提供 `start / salvo / cycle / toggleView / setOrder / selectWeapon(i) / advance(dt,n) / exit` 便于无头验证（同步推进战斗逻辑，不依赖 rAF）。
 
 发版流程（语义化版本、git tag、GitHub 主仓库 + Gitee 镜像双推、云端发布态同步与一致性核验）见 [changelog.md](changelog.md) 的「维护约定」。
 
