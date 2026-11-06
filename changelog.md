@@ -209,10 +209,12 @@
 
 | 链路 | 标识 | 与本地源码 |
 | --- | --- | --- |
-| 本地 | 待回填 | — |
-| 代码提交 | 待回填 | `index.html` 零改动 |
-| GitHub（主）/ Gitee（镜像）`main` | 待回填 | 待核验 |
-| 资料库编辑态 | 待回填 | 待核验 |
-| 资料库发布态 | 待回填 | 待核验 |
+| 本地 | `app.js` 115,518 B / md5 `5332c0d5d34efdee8c69ec64aa1bc177`；`style.css` 25,508 B / md5 `2245b56b0ee33faa9d488c7ce445579b` | — |
+| 代码提交 | `d9ae8ff`（4 个文件 / 41 行新增 / 15 行删除） | `index.html` 10,094 B 零改动 |
+| GitHub（主）/ Gitee（镜像）`main` | tag `v1.0.4` 指向本条回填提交 | 双端 HEAD 与 tag refs 一致 |
+| 资料库编辑态 | **v19** | `app.js` / `style.css` 与本地逐字节一致 |
+| 资料库发布态 | **v19** / CDN `PxTQK44shFA8` | 与编辑态逐字节一致；6 个资源 MIME 全部正确 |
 
-> 本条在发版完成后回填；量化数据以实际提交与云端终检为准。
+事务 `tx_Gw6q5lClIOEtfzZsh69C07`（baseVersion 18）经双向 diff 自检后**只上传 `app.js` 与 `style.css`**：`app.js` 的 PUT 带 `Content-Type: application/javascript`、`style.css` 带 `text/css`；自检逐字节重建确认 `app.js` 只有「版本号替换 + 一处渲染注释替换」两处白名单改动、物理代码零越界，`style.css` 只删除尾迹规则的 5 条有效行并改 3 处注释、未新增任何规则，`index.html` 未上传。发布态 `index.html` 仍为平台注入版 25,221 B，标注 225 / 155 / 1 与 `__NS_BRIDGE__` 守恒。发布态产物已拉回本地逐字节比对，5 个 `.js` 均为 `application/javascript`。
+
+本版验证：无头验证 `wb_ns_v104_verify.py` **63/63 PASS**（含 BADTAIL 反向对照：只把尾迹规则加回 CSS，`div::after` 的 `content` 由 `none` 变为 `""`、`box-shadow` 出现 `rgba`，「无尾迹」断言如预期转红）；手机首屏与加载空窗回归 **20/20 PASS**；`node --check` 4 个 JS 全过；`validate_bindings.py` 22/22 PASS；静态视觉预览放大确认每颗大球旁的小光点已消失，仅剩 3 颗球体与圆心质心光核。
