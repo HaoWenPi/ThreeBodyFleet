@@ -1689,7 +1689,7 @@
   }, true);
 
   /* 程序版本：与 changelog.md / git tag vX.Y.Z 保持一致，每次发版必须同步更新。 */
-  var APP_VERSION = '1.0.4';
+  var APP_VERSION = '1.0.5';
   window.__NS_VERSION__ = APP_VERSION;
 
   window.__NS_VIEW__ = {
@@ -1813,30 +1813,37 @@
   B.ready = true;
   if (B.pending) enterBridge();               // 加载期间已经点过 → 就绪后自动进入
 
-  /* ---------- 开场加载圈 · 平面牛顿三体（v1.0.3）----------
-     三颗球 = 三个等质量质点，在二维平面内只受彼此的万有引力。
+  /* ---------- 开场加载圈 · 混沌平面牛顿三体（v1.0.5）----------
+     三颗球 = 三个等质量质点，二维平面内只受彼此的点质量万有引力。
      · 每一对 (i,j) 只算一次力，F_ij 加到 i、F_ji = -F_ij 加到 j
-       → 牛顿第三定律；由此总动量守恒、质心恒在原点（中心光核即质心）。
-     · velocity Verlet（辛积分）固定步长推进，能量长期漂移约 1e-10。
-     · 初始条件取 Chenciner–Montgomery 八字周期解（G=m=1，T=6.32591398）：
-       r1=(-0.97000436, 0.24308753)  r2=( 0.97000436,-0.24308753)  r3=(0,0)
-       v1=v2=(0.466203685, 0.43236573)  v3=(-0.93240737,-0.86473146)
-       独立数值校准：E0=-1.28714199，动量/质心/角动量均为 0，
-       一周期速度 0.467→1.272（2.72 倍），最小间距 0.691（无需软化）。
-       此后没有任何预设轨道，位置全部由积分算出。
-     · 渲染只做「整体旋转 45° + 等比缩放 + 屏幕 y 轴镜像」的正交变换，
-       不改变动力学；缩放系数由启动时预积分一个周期的包围盒自动求得。
-     · 9 MB 舰体数据解析期间由 style.css 的纯 CSS 匀速公转兜底；
-       接管瞬间记录三球实际渲染位置，用 0.55s 平滑插值过渡到物理轨道。
-     不改 index.html（云端版含平台标注），也不碰早绑定脚本的按钮兜底。 */
+       → 牛顿第三定律；总动量守恒、质心恒在原点（中心光核即质心）。
+     · velocity Verlet 辛积分；近距遭遇时按特征时间 r^1.5 把宏观步 DT
+       拆成 1~32 个子步（总时间仍严格 DT），避免奇点附近能量发散，
+       不引入引力软化，保持严格点质量牛顿引力。
+     · 初值离开八字周期解的稳定岛：v3.x += 0.10，v1/v2 各 -= 0.05。
+       八字解是线性稳定的周期轨道，小扰动只变准周期，所以上一版
+       「轨迹重复 / 速度变化小」是初始条件的物理性质，不是渲染 bug。
+     · 真混沌三体几乎必然解体（独立数值实验：本初值约 t=141 抛射），
+       故按段播放：每段先静默预推进到不同相位，再显示 75 个物理时间；
+       段间 0.55s 插值重投。段内 100% 物理，段间重投是明确的视觉兜底。
+       球体跑远 / 能量漂移 / 非有限值也会立即触发重投。
+     · 速度可视化：球尺寸、亮度、沿速度方向拉伸随瞬时速率变化，
+       让「忽快忽慢」可见；不新增任何小球或尾迹。
+     · 渲染只做「整体旋转 45° + 等比缩放」的正交变换，不改动力学。
+     · 9 MB 舰体数据解析期由纯 CSS 圆周运动兜底，JS 就绪后平滑接管。
+     不改 index.html（云端版含平台标注），也不碰早绑定按钮兜底。 */
   (function initBootRing() {
     var screen = $('startscreen');
     var ring = document.querySelector('#startscreen .start-keys');
     var hook = window.__NS_BOOT__ = {
       ready: false, spheres: 0, spread: 0, glow: 1, duration: 2.15, enters: 0,
       physics: false, model: 'planar-newtonian-3body',
+      chaos: true, periodic: false, softening: 0,
       G: 1, mass: 1, period: 6.32591398, dt: 0.0025,
       steps: 0, simTime: 0, periods: 0, speedScale: 1,
+      segment: 0, resamples: 0, segTime: 0, substeps: 0, maxSub: 1,
+      speedMin: 1e9, speedMax: 0, span: 0, maxRadius: 0,
+      initialDelta: 0, warmup: 0,
       energy0: 0, energy: 0, drift: 0,
       momentum: [0, 0], com: [0, 0], pairForces: [],
       positions: [], velocities: [], speeds: [], paused: false
@@ -1848,58 +1855,84 @@
     hook.spheres = spheres.length;
     if (spheres.length < 3) return;   // DOM 被平台重排时保持纯 CSS 兜底
 
-    var G = 1, MASS = 1, DT = 0.0025, T = 6.32591398;
-    var BASE_SPEED = T / 2.15;        // 物理时间 / 真实秒：一周期约 2.15s
+    var G = 1, MASS = 1, DT = 0.0025, T = 6.32591398;  // T 仅作时间标尺，不再是周期
+    var BASE_SPEED = T / 2.15;
+    var CHAOS_DELTA = 0.10;          // 离开八字解稳定岛的初速度扰动
+    var SEG_COUNT = 8, SEG_T = 75, WARM = 0.0006;
+    var SUB_CAP = 32, SUB_K = 0.006;
     var ROT = Math.PI / 4, CROT = Math.cos(ROT), SROT = Math.sin(ROT);
-    var P0 = [[-0.97000436, 0.24308753], [0.97000436, -0.24308753], [0, 0]];
-    var V0 = [[0.466203685, 0.43236573], [0.466203685, 0.43236573],
-              [-0.93240737, -0.86473146]];
+    var SPEED_LO = 0.40, SPEED_HI = 1.75;
+    var P_BASE = [[-0.97000436, 0.24308753], [0.97000436, -0.24308753], [0, 0]];
+    var V_BASE = [[0.466203685, 0.43236573], [0.466203685, 0.43236573],
+                  [-0.93240737, -0.86473146]];
     var reduce = !!(window.matchMedia &&
                     window.matchMedia('(prefers-reduced-motion: reduce)').matches);
     var timeFactor = reduce ? 0.35 : 1;
 
-    var p = P0.map(function (r) { return r.slice(); });
-    var v = V0.map(function (u) { return u.slice(); });
-    var a = [[0, 0], [0, 0], [0, 0]];
+    var p = [], v = [], a = [[0, 0], [0, 0], [0, 0]];
     var accPending = true, lastPair = [];
+    var segStart = null;
     var viewSpan = 1, viewScale = 40, ballScale = 1;
     var handoff = null, raf = 0, lastNow = 0, accumulator = 0;
 
     /* 成对引力：i<j 每对只算一次，F_ij 与 F_ji 严格互为反作用力。
-       这是牛顿第三定律在代码里的唯一实现点，勿改成单向累加。 */
-    function accelerations(pos, out) {
-      var i, j, dx, dy, r2, inv, fx, fy;
+       这是牛顿第三定律在代码里的唯一实现点，勿改成单向累加。
+       record=false 供启动期包围盒预积分使用，不污染诊断用的 lastPair。 */
+    function accelerations(pos, out, record) {
+      var i, j, dx, dy, r2, inv, fx, fy, aix, aiy, ajx, ajy;
       for (i = 0; i < 3; i++) { out[i][0] = 0; out[i][1] = 0; }
-      lastPair.length = 0;
+      if (record !== false) lastPair.length = 0;
       for (i = 0; i < 3; i++) {
         for (j = i + 1; j < 3; j++) {
           dx = pos[j][0] - pos[i][0];
           dy = pos[j][1] - pos[i][1];
           r2 = dx * dx + dy * dy;
-          inv = 1 / (r2 * Math.sqrt(r2));      // F = G·m_i·m_j·(r_j-r_i)/r³
+          inv = 1 / (r2 * Math.sqrt(r2));        // F = G·m_i·m_j·(r_j-r_i)/r³
           fx = G * MASS * MASS * inv * dx;
           fy = G * MASS * MASS * inv * dy;
-          var aix = fx / MASS, aiy = fy / MASS;
-          var ajx = -fx / MASS, ajy = -fy / MASS;    // F_ji = -F_ij
+          aix = fx / MASS; aiy = fy / MASS;
+          ajx = -fx / MASS; ajy = -fy / MASS;    // F_ji = -F_ij
           out[i][0] += aix; out[i][1] += aiy;
           out[j][0] += ajx; out[j][1] += ajy;
-          lastPair.push([aix, aiy, ajx, ajy]);       // 记录实际写入的增量，供无头验证
+          if (record !== false) lastPair.push([aix, aiy, ajx, ajy]);
         }
       }
     }
 
+    function minSeparationOf(pos) {
+      var m = Infinity, i, j, dx, dy, r;
+      for (i = 0; i < 3; i++) for (j = i + 1; j < 3; j++) {
+        dx = pos[j][0] - pos[i][0]; dy = pos[j][1] - pos[i][1];
+        r = Math.sqrt(dx * dx + dy * dy);
+        if (r < m) m = r;
+      }
+      return m > 1e-6 ? m : 1e-6;
+    }
+
+    /* 近距遭遇时两体的特征时间 ~ r^1.5，据此把 DT 细分，保持严格点质量引力 */
+    function substepsFor(r) {
+      var n = Math.ceil(DT / (SUB_K * r * Math.sqrt(r)));
+      return Math.max(1, Math.min(SUB_CAP, n || 1));
+    }
+
     function step() {
-      var i;
+      var i, k, sub, h;
       if (accPending) { accelerations(p, a); accPending = false; }
-      for (i = 0; i < 3; i++) {               // kick ½ + drift
-        v[i][0] += 0.5 * DT * a[i][0]; v[i][1] += 0.5 * DT * a[i][1];
-        p[i][0] += DT * v[i][0];       p[i][1] += DT * v[i][1];
+      sub = substepsFor(minSeparationOf(p));
+      h = DT / sub;
+      for (k = 0; k < sub; k++) {
+        for (i = 0; i < 3; i++) {                // kick ½ + drift
+          v[i][0] += 0.5 * h * a[i][0]; v[i][1] += 0.5 * h * a[i][1];
+          p[i][0] += h * v[i][0];       p[i][1] += h * v[i][1];
+        }
+        accelerations(p, a);                    // 新位置上的加速度
+        for (i = 0; i < 3; i++) {               // kick ½
+          v[i][0] += 0.5 * h * a[i][0]; v[i][1] += 0.5 * h * a[i][1];
+        }
       }
-      accelerations(p, a);                    // 新位置上的加速度
-      for (i = 0; i < 3; i++) {               // kick ½
-        v[i][0] += 0.5 * DT * a[i][0]; v[i][1] += 0.5 * DT * a[i][1];
-      }
-      hook.steps++; hook.simTime += DT;
+      hook.substeps += sub;
+      if (sub > hook.maxSub) hook.maxSub = sub;
+      hook.steps++; hook.simTime += DT; hook.segTime += DT;
     }
 
     function energyOf(pos, vel) {
@@ -1911,10 +1944,9 @@
       }
       return e;
     }
-    hook.energy0 = energyOf(P0, V0);
 
     function measure() {
-      var mx = 0, my = 0, cx = 0, cy = 0, i;
+      var mx = 0, my = 0, cx = 0, cy = 0, i, sp, rx, ry;
       for (i = 0; i < 3; i++) {
         mx += MASS * v[i][0]; my += MASS * v[i][1];
         cx += MASS * p[i][0]; cy += MASS * p[i][1];
@@ -1926,59 +1958,144 @@
       hook.positions = p.map(function (r) { return [r[0], r[1]]; });
       hook.velocities = v.map(function (u) { return [u[0], u[1]]; });
       hook.speeds = v.map(function (u) { return Math.sqrt(u[0] * u[0] + u[1] * u[1]); });
+      hook.span = 0; hook.maxRadius = 0;
+      for (i = 0; i < 3; i++) {
+        sp = hook.speeds[i];
+        if (sp < hook.speedMin) hook.speedMin = sp;
+        if (sp > hook.speedMax) hook.speedMax = sp;
+        hook.maxRadius = Math.max(hook.maxRadius,
+          Math.sqrt(p[i][0] * p[i][0] + p[i][1] * p[i][1]));
+        rx = p[i][0] * CROT - p[i][1] * SROT;
+        ry = p[i][0] * SROT + p[i][1] * CROT;
+        hook.span = Math.max(hook.span, Math.abs(rx), Math.abs(ry));
+      }
       hook.pairForces = lastPair.map(function (f) { return f.slice(); });
       hook.periods = hook.simTime / T;
       hook.duration = 2.15 / (hook.speedScale * timeFactor);
       return hook;
     }
 
-    /* 启动时用同一套积分预跑一个周期，量出渲染包围盒 → 自动求缩放。
-       避免把视觉常数硬编码进物理层，容器尺寸变化时只需重算比例。 */
-    function calibrate() {
-      var q = P0.map(function (r) { return r.slice(); });
-      var w = V0.map(function (u) { return u.slice(); });
-      var aa = [[0, 0], [0, 0], [0, 0]];
-      var n = Math.round(T / DT), span = 0.0001, s, i;
-      accelerations(q, aa);
-      for (s = 0; s < n; s++) {
-        for (i = 0; i < 3; i++) {
-          w[i][0] += 0.5 * DT * aa[i][0]; w[i][1] += 0.5 * DT * aa[i][1];
-          q[i][0] += DT * w[i][0];        q[i][1] += DT * w[i][1];
-        }
-        accelerations(q, aa);
-        for (i = 0; i < 3; i++) {
-          w[i][0] += 0.5 * DT * aa[i][0]; w[i][1] += 0.5 * DT * aa[i][1];
-          span = Math.max(span, Math.abs(q[i][0] * CROT - q[i][1] * SROT),
-                                Math.abs(q[i][0] * SROT + q[i][1] * CROT));
-        }
-      }
-      viewSpan = span;
-      recalcScale();
+    /* 每段初值：基础混沌初值 + 千分之几的确定性微扰（总动量恒 0），
+       外加不同的静默预推进相位——让每段开场构型就不同，不会像「重新开始」。 */
+    function initialFor(seg) {
+      var k = ((seg % SEG_COUNT) + SEG_COUNT) % SEG_COUNT;
+      var d = CHAOS_DELTA + WARM * Math.sin((k + 1) * 2.39996323);
+      var P = P_BASE.map(function (r) { return r.slice(); });
+      var V = V_BASE.map(function (u) { return u.slice(); });
+      V[2][0] += d; V[0][0] -= d / 2; V[1][0] -= d / 2;
+      return { P: P, V: V, offset: 3 + (k * 2.5) % 12, delta: d };
     }
+
     function recalcScale() {
       viewScale = ((ring.offsetWidth || 104) / 2 - 9) / viewSpan;   // 球半径 7 + 2 余量
     }
 
+    /* 启动期用同一套积分预跑一段，量出旋转后包围盒 → 自动求缩放。
+       混沌轨道没有周期，故不再「预跑一个周期」，而是预跑整个段长。 */
+    function estimateSpan() {
+      var init = initialFor(0);
+      var q = init.P.map(function (r) { return r.slice(); });
+      var w = init.V.map(function (u) { return u.slice(); });
+      var aa = [[0, 0], [0, 0], [0, 0]];
+      var n = Math.round(SEG_T / DT), span = 0.0001, s, i, k, sub, h;
+      accelerations(q, aa, false);
+      for (s = 0; s < n; s++) {
+        sub = substepsFor(minSeparationOf(q)); h = DT / sub;
+        for (k = 0; k < sub; k++) {
+          for (i = 0; i < 3; i++) {
+            w[i][0] += 0.5 * h * aa[i][0]; w[i][1] += 0.5 * h * aa[i][1];
+            q[i][0] += h * w[i][0];        q[i][1] += h * w[i][1];
+          }
+          accelerations(q, aa, false);
+          for (i = 0; i < 3; i++) {
+            w[i][0] += 0.5 * h * aa[i][0]; w[i][1] += 0.5 * h * aa[i][1];
+          }
+        }
+        for (i = 0; i < 3; i++) {
+          span = Math.max(span, Math.abs(q[i][0] * CROT - q[i][1] * SROT),
+                                Math.abs(q[i][0] * SROT + q[i][1] * CROT));
+        }
+      }
+      viewSpan = span * 1.06;
+      recalcScale();
+    }
+
+    function proj(i) {
+      return [(p[i][0] * CROT - p[i][1] * SROT) * viewScale,
+              (p[i][0] * SROT + p[i][1] * CROT) * viewScale];
+    }
+    function captureRenderPositions() {
+      var out = [], i;
+      for (i = 0; i < 3; i++) out.push(proj(i));
+      return out;
+    }
+
+    /* 段内守护：真混沌三体最终会抛射一球，画面不能跟着跑飞 */
+    function unstable() {
+      var i, e;
+      for (i = 0; i < 3; i++) {
+        if (!isFinite(p[i][0]) || !isFinite(p[i][1]) ||
+            !isFinite(v[i][0]) || !isFinite(v[i][1])) return true;
+        if (Math.sqrt(p[i][0] * p[i][0] + p[i][1] * p[i][1]) > 2.0) return true;
+      }
+      if (minSeparationOf(p) < 0.02) return true;
+      e = Math.abs(energyOf(p, v) - hook.energy0) / Math.abs(hook.energy0);
+      return !isFinite(e) || e > 0.005;
+    }
+
+    function reseed(seg, from) {
+      var init = initialFor(seg), k, n;
+      p = init.P.map(function (r) { return r.slice(); });
+      v = init.V.map(function (u) { return u.slice(); });
+      a = [[0, 0], [0, 0], [0, 0]];
+      accelerations(p, a); accPending = false;
+      hook.energy0 = energyOf(p, v);
+      hook.segment = ((seg % SEG_COUNT) + SEG_COUNT) % SEG_COUNT;
+      hook.initialDelta = init.delta;
+      hook.warmup = init.offset;
+      hook.speedMin = 1e9; hook.speedMax = 0;
+      hook.steps = 0; hook.simTime = 0; hook.segTime = 0; accumulator = 0;
+      n = Math.round(init.offset / DT);
+      for (k = 0; k < n; k++) step();            // 静默预推进到不同相位
+      segStart = {
+        p: p.map(function (r) { return r.slice(); }),
+        v: v.map(function (u) { return u.slice(); })
+      };
+      hook.steps = 0; hook.simTime = 0; hook.segTime = 0;
+      hook.speedMin = 1e9; hook.speedMax = 0;
+      measure();
+      if (from) handoff = { t0: (window.performance || Date).now(), from: from };
+      if (hook.ready) hook.resamples++;
+    }
+
     function render(now) {
-      var i, rx, ry, vx, vy, x, y, ang, u = 1;
+      var i, rx, ry, vx, vy, x, y, ang, u = 1, sp, q, size, sx, sy, bright;
       if (handoff) {
         var k = (now - handoff.t0) / 550;
         u = k >= 1 ? 1 : (k <= 0 ? 0 : k * k * (3 - 2 * k));
         if (k >= 1) handoff = null;
       }
+      measure();
       for (i = 0; i < 3; i++) {
         rx = (p[i][0] * CROT - p[i][1] * SROT) * viewScale;
         ry = (p[i][0] * SROT + p[i][1] * CROT) * viewScale;
         vx = v[i][0] * CROT - v[i][1] * SROT;
         vy = v[i][0] * SROT + v[i][1] * CROT;
         x = rx; y = ry;
-        if (u < 1) {                       // 从 CSS 圆周平滑过渡到引力轨道
+        if (u < 1) {                       // 从旧位置平滑过渡到新段
           x = handoff.from[i][0] * (1 - u) + rx * u;
           y = handoff.from[i][1] * (1 - u) + ry * u;
         }
-        ang = Math.atan2(vy, vx) * 180 / Math.PI;   // 球面高光朝向随速度方向变化
+        ang = Math.atan2(vy, vx) * 180 / Math.PI;   // 高光/拉伸朝向 = 瞬时速度方向
+        sp = hook.speeds[i];
+        q = Math.max(0, Math.min(1, (sp - SPEED_LO) / (SPEED_HI - SPEED_LO)));
+        size = (0.68 + 0.72 * q) * ballScale;
+        sx = size * (1 + 0.14 * q);
+        sy = size * (1 - 0.06 * q);
+        bright = (0.72 + 1.05 * q) * hook.glow;
         spheres[i].style.transform = 'translate(' + x.toFixed(2) + 'px,' + y.toFixed(2) +
-          'px) rotate(' + ang.toFixed(1) + 'deg) scale(' + ballScale.toFixed(3) + ')';
+          'px) rotate(' + ang.toFixed(1) + 'deg) scale(' + sx.toFixed(3) + ',' + sy.toFixed(3) + ')';
+        spheres[i].style.filter = 'brightness(' + bright.toFixed(3) + ')';
       }
     }
 
@@ -1987,10 +2104,17 @@
       var dtReal = Math.min(0.05, (now - lastNow) / 1000);
       lastNow = now;
       accumulator += dtReal * BASE_SPEED * hook.speedScale * timeFactor;
-      var guard = 0;
-      while (accumulator >= DT && guard < 240) { step(); accumulator -= DT; guard++; }
-      if (guard >= 240) accumulator = 0;   // 后台标签页恢复时不要爆算
-      measure(); render(now);
+      var guard = 0, need = false;
+      while (accumulator >= DT && guard < 240) {
+        step(); accumulator -= DT; guard++;
+        if (hook.segTime >= SEG_T || unstable()) { need = true; break; }
+      }
+      if (need) {
+        var from = captureRenderPositions();
+        reseed(hook.segment + 1, from);
+      }
+      if (guard >= 240 || need) accumulator = 0;   // 后台标签页恢复时不要爆算
+      render(now);
       raf = window.requestAnimationFrame(frame);
     }
 
@@ -2006,7 +2130,14 @@
         speeds: hook.speeds.slice(),
         pairForces: hook.pairForces.map(function (f) { return f.slice(); }),
         speedScale: hook.speedScale, duration: hook.duration,
-        viewScale: viewScale, dt: DT, period: T, physics: hook.physics
+        viewScale: viewScale, dt: DT, period: T,
+        physics: hook.physics, chaos: hook.chaos, periodic: hook.periodic,
+        softening: hook.softening,
+        segment: hook.segment, resamples: hook.resamples, segTime: hook.segTime,
+        substeps: hook.substeps, maxSub: hook.maxSub,
+        speedMin: hook.speedMin, speedMax: hook.speedMax,
+        span: hook.span, maxRadius: hook.maxRadius,
+        initialDelta: hook.initialDelta, warmup: hook.warmup
       };
     };
     hook.pause = function () { hook.paused = true; };
@@ -2015,18 +2146,22 @@
       if (!raf) raf = window.requestAnimationFrame(frame);
     };
     hook.reset = function () {
-      p = P0.map(function (r) { return r.slice(); });
-      v = V0.map(function (u) { return u.slice(); });
-      accPending = true; accumulator = 0;
-      hook.steps = 0; hook.simTime = 0;
+      if (!segStart) return hook.snapshot();
+      p = segStart.p.map(function (r) { return r.slice(); });
+      v = segStart.v.map(function (u) { return u.slice(); });
+      a = [[0, 0], [0, 0], [0, 0]];
+      accelerations(p, a); accPending = false;
+      hook.steps = 0; hook.simTime = 0; hook.segTime = 0; accumulator = 0;
+      hook.speedMin = 1e9; hook.speedMax = 0;
       return hook.snapshot();
     };
     hook.advance = function (simSeconds) {
-      var n = Math.min(20000, Math.floor(simSeconds / DT)), k;
+      var n = Math.min(60000, Math.floor(simSeconds / DT)), k;
       for (k = 0; k < n; k++) step();
       return hook.snapshot();
     };
     hook.renderOnce = function () { render((window.performance || Date).now()); };
+    hook.reseed = function (seg) { reseed(seg, null); return hook.snapshot(); };
 
     function reset() {
       hook.spread = 0; hook.glow = 1; hook.speedScale = 1;
@@ -2057,19 +2192,18 @@
     });
     window.addEventListener('resize', recalcScale);
 
-    calibrate();
+    estimateSpan();
     reset();
-    measure();
     /* 接管：先记下纯 CSS 动画此刻每颗球的实际屏幕位置，再关掉 CSS 公转。
        后续 0.55s 从这些位置插值到引力轨道，首屏不会出现跳变。 */
     var rr = ring.getBoundingClientRect();
-    var from = spheres.slice(0, 3).map(function (d) {
+    var fromCSS = spheres.slice(0, 3).map(function (d) {
       var b = d.getBoundingClientRect();
       return [b.left + b.width / 2 - (rr.left + rr.width / 2),
               b.top + b.height / 2 - (rr.top + rr.height / 2)];
     });
     ring.classList.add('ns-phys');
-    handoff = { t0: (window.performance || Date).now(), from: from };
+    reseed(0, fromCSS);
     hook.physics = true;
     hook.ready = true;
     lastNow = (window.performance || Date).now();

@@ -329,12 +329,14 @@ body.compact .gearbtn.warp{min-width:84px}
   body.compact .panel.open,body.compact .hintbar.open{top:104px;max-height:calc(100vh - 190px)}
 }
 
-/* ================= 开场加载圈 · 平面牛顿三体（v1.0.4）=================
-   三颗球是三个等质量质点，在二维平面内只受彼此的万有引力：每一对力大小
-   相等、方向相反（牛顿第三定律），由 app.js 用 velocity Verlet 辛积分推进；
-   初始条件取 Chenciner–Montgomery 八字周期解，之后没有任何预设轨道。
+/* ================= 开场加载圈 · 混沌平面牛顿三体（v1.0.5）=================
+   三颗球是三个等质量质点，在二维平面内只受彼此的「点质量」万有引力：
+   每一对力大小相等、方向相反（牛顿第三定律），由 app.js 用 velocity Verlet
+   辛积分 + 近距自适应子步长推进；初值已离开八字周期解的稳定岛，进入混沌区，
+   轨道不再闭合。真混沌三体终将解体，故按段播放、段间平滑重投（见 app.js 注释）。
    纯 CSS 的匀速公转仅作首屏兜底（9 MB 舰体数据解析期间就有画面），
-   app.js 就绪后给容器加 .ns-phys 接管，位置完全由积分结果写入内联 transform。
+   app.js 就绪后给容器加 .ns-phys 接管，位置、尺寸、亮度、沿速度方向的拉伸
+   全部由积分结果逐帧写入内联 transform / filter；不新增小球或尾迹。
    中心光核留在原点 = 系统质心；内力成对抵消，故质心恒定不动。
    云端 index.html 一个字都不改：仍复用 .start-keys 的 div，只隐藏文字。
    选择器统一带 #startscreen 前缀，确保覆盖本文件靠后的窄屏 media query。 */
@@ -405,13 +407,13 @@ body.compact .gearbtn.warp{min-width:84px}
 @keyframes ns-boot-spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
 @keyframes ns-boot-pulse{0%,100%{opacity:.62}45%{opacity:1}}
 @keyframes ns-boot-core{0%,100%{opacity:.35;transform:scale(.8)}50%{opacity:1;transform:scale(1.35)}}
-/* ---- JS 物理接管（v1.0.3，v1.0.4 去尾迹）----
-   .ns-phys 由 initBootRing() 加上：容器停止匀速公转，球体 transform 改由
-   引力积分结果逐帧写入。transition 必须关掉，否则渲染会滞后于物理位置；
-   球体旋转角取瞬时速度方向，仅影响球面高光朝向。 */
+/* ---- JS 物理接管（v1.0.3 建立，v1.0.4 去尾迹，v1.0.5 速度可视化）----
+   .ns-phys 由 initBootRing() 加上：容器停止匀速公转，球体 transform / filter
+   改由引力积分结果逐帧写入。transition 必须关掉，否则渲染会滞后于物理位置；
+   旋转角取瞬时速度方向，球的尺寸 / 亮度 / 拉伸由瞬时速率驱动。 */
 #startscreen .start-keys.ns-phys{animation:none;transform:none}
 #startscreen .start-keys.ns-phys > div{
-  transform:none;transition:none;will-change:transform;
+  transform:none;transition:none;will-change:transform,filter;
   animation:ns-boot-pulse 1.08s ease-in-out infinite;
 }
 @media (max-width:430px){
