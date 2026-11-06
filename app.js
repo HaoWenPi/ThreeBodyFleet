@@ -1082,6 +1082,15 @@
     return w;
   });
 
+  /* 编队航向：僚舰不共用旗舰的瞬时姿态。qFleet 以低速惯性跟随，旗舰改航向时
+     各舰沿自己的航向继续走一段再弧线归位，而不是整队被一个旋转矩阵刚性搬走。
+     巡航越快，编队转向越迟钝（大舰队机动需要时间）。 */
+  var qFleet = new THREE.Quaternion().copy(ship.quaternion);
+  var qFleetDelta = new THREE.Quaternion();
+  var FLEET_HOOK = window.__NS_FLEET__ = {
+    lagDeg: 0, driveNorm: 0, wx: 0, wy: 0, wz: 0
+  };
+
   /* ================= 状态 ================= */
   var state = {
     gear: 0, targetC: 0, speedC: 0, warp: 0,
@@ -1701,7 +1710,7 @@
   }, true);
 
   /* 程序版本：与 changelog.md / git tag vX.Y.Z 保持一致，每次发版必须同步更新。 */
-  var APP_VERSION = '1.1.1';
+  var APP_VERSION = '1.1.2';
   window.__NS_VERSION__ = APP_VERSION;
 
   window.__NS_VIEW__ = {
@@ -2267,12 +2276,13 @@
     syncCompact();                               // 横竖屏 / 窗口变化即时重排 HUD
   });
 
-  /* ================= 舰队战役 · P0 可玩原型（v1.1.1） =================
+  /* ================= 舰队战役 · P0 可玩原型（v1.1.2） =================
      战斗空间 combat.root 在「开战瞬间」锚定一次舰体姿态，之后固定在世界坐标：
      敌舰 / 弹丸 / 爆炸都是空间里独立存在的实体，旗舰转向或镜头环绕都不会带着它们转。
      6 座炮塔另挂在 combat.turretRoot 下，每帧跟随舰体，保证炮口与舰体始终贴合；
      两者之间的坐标用 worldToLocal / localToWorld 转换。星场仍按 deltaVec 流动，
-     战斗态只乘一个视觉系数 combatFlow。全部资源程序化生成，零新增文件；
+     战斗态乘一个随巡航档位变化的视觉系数；档位同时决定接战距离 standoff，
+     旗舰加速即主动接敌、减速即脱离。全部资源程序化生成，零新增文件；
      全部 UI 由运行时 DOM 创建，index.html 零改动。
      红线：不动四喷口 / 蓝焰 / AHEAD / orbitBy / 开场三体物理 / 手势 / 早绑定进舰桥。 */
   var combat = {
@@ -2280,7 +2290,9 @@
     target: null, order: 'focus', salvoCd: 0, wingCd: 1.6,
     kills: 0, losses: 0, hull: 100, shield: 100,
     wave: 0, waveAt: 0, result: null, log: [], hitFlash: 0,
-    root: null, turretRoot: null, enemies: [], turrets: [], shots: [], bursts: [], nextId: 1
+    root: null, turretRoot: null, enemies: [], turrets: [], shots: [], bursts: [], nextId: 1,
+    // 档位联动：standoff = 推演设定的接战距离（战场单位），relC = 相对巡航基准的速度差
+    standoff: 165, relC: 0, gearSeen: 2
   };
   var COMBAT_MISSION = { name: '接触 · 智子盲区', en: 'CONTACT / SOPHON BLIND ZONE', limit: 150 };
   var COMBAT_WAVES = [
@@ -2289,6 +2301,12 @@
     { at: 52, list: [['probe', 2], ['raider', 2]] },
     { at: 82, list: [['raider', 2]] }
   ];
+  // 前进二（0.050c）是战斗巡航基准：该档下相对速度 0、接战距离 165、星场系数 0.12，
+  // 与 v1.1.1 完全一致；加速 → 主动接敌（距离缩短），减速 → 脱离（距离拉大）。
+  // 只读取 state.speedC / AHEAD 标签，绝不改写 AHEAD 常量或 driveNorm 定义。
+  var COMBAT_CRUISE_C = 0.05;
+  var COMBAT_STANDOFF_K = 1200;
+  var COMBAT_STANDOFF_MIN = 105, COMBAT_STANDOFF_MAX = 235;
   var COMBAT_SPEC = {
     probe:  { name: '智子探针', hp: 20, speed: 27, dmg: 4, cd: 2.6 },
     raider: { name: '三体拦截舰', hp: 60, speed: 16, dmg: 9, cd: 3.4 }
@@ -2300,6 +2318,7 @@
     '  <div class="c-row"><span>战役目标</span><b>清除全部敌对信号</b></div>',
     '  <div class="c-row"><span>剩余敌舰</span><b id="c-remain">0</b></div>',
     '  <div class="c-row"><span>推演计时</span><b id="c-time">0:00</b></div>',
+    '  <div class="c-row"><span>接战距离</span><b id="c-standoff">16.5 千 km</b></div>',
     '</div>',
     '<div id="c-target" class="c-card">',
     '  <div class="c-eyebrow">TARGET LOCK / 锁定目标</div>',
@@ -2589,14 +2608,16 @@
       if (!e.alive) continue;
       var spec = COMBAT_SPEC[e.kind];
       var dist = e.pos.length();
-      if (dist > 165) {
+      // 轨道半径随接战距离联动：换档后敌阵整体逼近 / 退开，而不是永远钉在 165。
+      var so = combat.standoff;
+      if (dist > so) {
         e.pos.addScaledVector(e.pos, -spec.speed * dt / dist);
       } else {
         e.orbit += dt * (e.kind === 'probe' ? 0.55 : 0.32);
-        var rr = 165 + Math.sin(t * 0.7 + e.seed) * 22;
+        var rr = so + Math.sin(t * 0.7 + e.seed) * 22;
         e.pos.set(Math.cos(e.orbit) * rr * 0.72,
                   Math.sin(t * 0.5 + e.seed) * 26,
-                  -Math.abs(Math.sin(e.orbit)) * rr - 60);
+                  -Math.abs(Math.sin(e.orbit)) * rr - so * 0.36);
       }
       e.mesh.position.copy(e.pos);
       e.mesh.rotation.y += dt * 1.2;
@@ -2695,9 +2716,11 @@
     set('c-tname', combat.target && combat.target.alive
       ? combat.target.name + ' #' + combat.target.id : '未锁定');
     set('c-tdist', combat.target && combat.target.alive
-      ? '距离 ' + (combat.target.pos.length() / 10).toFixed(1) + ' 千 km · HP ' +
+      ? '距离 ' + (combat.target.pos.length() / 10).toFixed(1) + ' 千 km · 相对 ' +
+        (combat.relC >= 0 ? '+' : '') + combat.relC.toFixed(3) + ' c · HP ' +
         Math.max(0, Math.round(combat.target.hp)) + '/' + combat.target.maxHp
       : '按 Tab 选择目标');
+    set('c-standoff', (combat.standoff / 10).toFixed(1) + ' 千 km');
     set('c-hull', Math.round(combat.hull) + '%');
     set('c-shield', Math.round(combat.shield) + '%');
     set('c-order', combat.order === 'focus' ? '集火 FOCUS' : '规避 EVADE');
@@ -2764,6 +2787,7 @@
     setGear(2, true);
     state.targetC = 0.05; state.speedC = 0.05; state.warp = 0;
     state.mouseNX = 0; state.mouseNY = 0;
+    combat.standoff = 165; combat.relC = 0; combat.gearSeen = 2;
     combatLog('任务 01 · ' + COMBAT_MISSION.name + ' · 战术推演启动');
     combatLog('Tab 切目标 / 空格齐射 / C 战术俯视 / G 集火 / B 规避');
     showToast('战术推演 · 接敌', COMBAT_MISSION.en, false);
@@ -2867,6 +2891,18 @@
     combat.turretRoot.updateWorldMatrix(true, true);
     combat.root.updateWorldMatrix(true, true);
     combat.time += dt;
+    /* 档位 → 相对速度 → 接战距离：state.speedC 由 setGear 平滑，这里再过渡一层，
+       换档时敌阵不会瞬移。加速主动接敌（距离缩短 / 星流变急），减速脱离。 */
+    var relTarget = state.speedC - COMBAT_CRUISE_C;
+    combat.relC += (relTarget - combat.relC) * (1 - Math.exp(-2.6 * dt));
+    var soTarget = clamp(165 - combat.relC * COMBAT_STANDOFF_K,
+                         COMBAT_STANDOFF_MIN, COMBAT_STANDOFF_MAX);
+    combat.standoff += (soTarget - combat.standoff) * (1 - Math.exp(-1.5 * dt));
+    if (combat.gearSeen !== state.gear) {
+      combat.gearSeen = state.gear;
+      combatLog('推进档位 → ' + AHEAD[state.gear].label + ' · 接战距离 ' +
+                (soTarget / 10).toFixed(1) + ' 千 km');
+    }
     if (combat.phase === 'fight') {
       combatWaves();
       combatEnemies(dt, t);
@@ -2897,11 +2933,15 @@
     H.target = combat.target && combat.target.alive ? combat.target.name + '#' + combat.target.id : null;
     H.enemies = combatAliveEnemies(); H.turrets = combat.turrets.length;
     H.result = combat.result; H.wings = combatAliveWings();
+    H.standoff = +combat.standoff.toFixed(2);
+    H.relC = +combat.relC.toFixed(4);
+    H.gear = state.gear;
   }
   window.__NS_COMBAT__ = {
     active: false, phase: 'idle', tactical: false, mission: 0, time: 0, wave: 0,
     kills: 0, losses: 0, hull: 100, shield: 100, order: 'focus', salvoCd: 0,
     target: null, enemies: 0, turrets: 0, wings: 11, result: null,
+    standoff: 165, relC: 0, gear: 0,
     start: function (m) { combatStart(m || 1); },
     salvo: function () { var r = combatSalvo(); combatHook(); return r; },
     cycle: function () { combatCycleTarget(); combatHook(); },
@@ -2976,9 +3016,16 @@
     var visualSpeed = 6 + driveNorm * 240 + state.warp * 90;
     deltaVec.copy(forward).multiplyScalar(visualSpeed * dt);
 
+    // 战斗态星流随巡航档位线性变化：前进二仍是 0.12（与 v1.1.1 一致），
+    // 加速时星流更急、减速更缓，推进与接敌距离同步可感。
+    // 必须声明在 if (dt > 0) 之外：首帧 dt=0 时 __NS_DRIVE__ 也会读取 cFlow，
+    // 放在守卫内会让 cFlow 为 undefined 并在 .toFixed() 处抛异常（页面黑屏）。
+    var cFlow = combat.active
+      ? (state.gear === 4 ? 0 : clamp(0.12 + (driveNorm - 0.5) * 0.50, 0.02, 0.42))
+      : 1;
+
     /* 星场：相对位移 + 循环包裹 */
     if (dt > 0) {
-      var cFlow = combat.active ? (state.gear === 4 ? 0 : 0.12) : 1;
       var dx = deltaVec.x * cFlow, dy = deltaVec.y * cFlow, dz = deltaVec.z * cFlow;
       for (var i = 0; i < STAR_N; i++) {
         var j = i * 3;
@@ -3090,13 +3137,20 @@
     var wobbleGain = 0.8 + state.agility * 6.5 + state.warp * 3.0;
     // 高机动时编队整体向外松散，机动结束再收拢，队形不会永远笔直完美
     var spread = 1 + state.agility * 0.22 + state.warp * 0.10;
+    // 编队航向滞后：qFleet 慢跟随 ship.quaternion，高速时更迟钝；差值转成
+    // 确定性的转弯离心侧偏，整队向外甩出、转完由弹性收回（不是随机抖动）。
+    var fleetTurn = 0.95 / (1 + driveNorm * 1.5);
+    qFleet.slerp(ship.quaternion, 1 - Math.exp(-fleetTurn * dt));
+    qFleetDelta.copy(qFleet).invert().multiply(ship.quaternion);
+    tmpEuler.setFromQuaternion(qFleetDelta);
+    var fleetSlide = clamp(tmpEuler.y, -0.5, 0.5) * 16;
     wings.forEach(function (w, idx) {
       var p = fpts[idx];
       tmpVec.set(
-        p[0] * spread + Math.sin(t * (0.42 + w.seed * 0.5) + w.phase) * w.wobble * wobbleGain,
+        p[0] * spread + fleetSlide + Math.sin(t * (0.42 + w.seed * 0.5) + w.phase) * w.wobble * wobbleGain,
         p[1] * spread + Math.sin(t * (0.35 + w.seed * 0.6) + w.phase * 1.7) * w.wobble * wobbleGain * 0.75,
         p[2] * spread * (1 + state.warp * 0.22) + Math.cos(t * (0.3 + w.seed * 0.45) + w.phase) * w.wobble * wobbleGain
-      ).applyQuaternion(ship.quaternion).add(ship.position);
+      ).applyQuaternion(qFleet).add(ship.position);
 
       // 切阵型与剧烈滚转时刚度下降，编队先被甩开、再逐渐收拢
       var stiff = w.stiff * (0.22 + 0.78 * state.formationBlend) * (1 - state.agility * 0.60);
@@ -3109,7 +3163,7 @@
       w.group.position.copy(w.pos);
 
       // 姿态独立跟随：滚转时各舰先后不一，另有小幅自主摇摆
-      qTarget.copy(ship.quaternion);
+      qTarget.copy(qFleet);
       var wob = (0.012 + state.agility * 0.11 + state.warp * 0.025) * w.wobble;
       qWobble.setFromEuler(tmpEuler.set(
         Math.sin(t * 0.7 + w.phase) * wob,
@@ -3119,6 +3173,12 @@
       qTarget.multiply(qWobble);
       w.group.quaternion.slerp(qTarget, 1 - Math.exp(-w.turn * dt));
     });
+    FLEET_HOOK.lagDeg = +(2 * Math.acos(clamp(Math.abs(qFleet.dot(ship.quaternion)), 0, 1))
+                          * 180 / Math.PI).toFixed(3);
+    FLEET_HOOK.driveNorm = +driveNorm.toFixed(4);
+    FLEET_HOOK.wx = +wings[0].pos.x.toFixed(3);
+    FLEET_HOOK.wy = +wings[0].pos.y.toFixed(3);
+    FLEET_HOOK.wz = +wings[0].pos.z.toFixed(3);
 
     /* 第三人称跟随相机：zoom 改变跟随距离；orbitYaw/Pitch 让机位绕旗舰本体旋转。
        默认仍看向舰首前方；一旦开始环绕，注视点平滑收到舰体中心，方便观察整舰。 */
@@ -3181,7 +3241,8 @@
     V.driveNorm = +driveNorm.toFixed(4);
     window.__NS_DRIVE__ = { gear: state.gear, c: +state.speedC.toFixed(4),
                             norm: +driveNorm.toFixed(4), visualSpeed: +visualSpeed.toFixed(2),
-                            fov: +targetFov.toFixed(2), thrust: +thrust.toFixed(4) };
+                            fov: +targetFov.toFixed(2), thrust: +thrust.toFixed(4),
+                            flow: +cFlow.toFixed(4) };
     var op = document.querySelector('.panel.open, .hintbar.open');
     V.dockOpen = op ? op.id : '';
   }

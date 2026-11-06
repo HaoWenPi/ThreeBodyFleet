@@ -5,7 +5,7 @@
 **纯静态、零后端、无需登录；本地运行时完全离线。** 所有依赖都在仓库里，双击 `index.html` 即可离线运行。
 
 - 在线试玩：https://www.workbuddy.link/p/Ipkm3BuUttxgpr9CywzevY
-- 当前程序版本：**v1.1.1**（HUD 左上角「舰籍信息」面板显示；模型包自身的 `1.0.0` 与之独立）
+- 当前程序版本：**v1.1.2**（HUD 左上角「舰籍信息」面板显示；模型包自身的 `1.0.0` 与之独立）
 - 许可证：Apache-2.0，见 [LICENSE](LICENSE)
 - 版本变更记录：[changelog.md](changelog.md)
 
@@ -125,8 +125,15 @@ python -m http.server 8000
 战斗在**开战瞬间锚定的世界空间**进行：敌舰、弹丸与爆炸是空间里独立存在的实体，
 旗舰转向或镜头环绕只会看到它们相对滑动，不会跟着视角一起转；6 座炮塔另挂在跟随舰体的
 挂载组下，保证炮口始终贴合舰体。星场仍流动但只乘一个视觉系数，因此敌人不会被背景一起冲走。
-`0`–`4` 档位在战役中仍可用，
-但「前进四」被锁定（接敌必须退出跃迁）；巡航速度、四喷口与蓝焰视觉不受影响。
+
+**档位会改变接战距离**：前进二是战斗巡航基准（16.5 千 km），切到前进三会主动接敌、
+敌阵平滑逼近到约 13.5 千 km 且星流加速；减速或停车则脱离到约 19.5～22.5 千 km、星流放缓。
+任务卡显示「接战距离」，锁定卡显示「相对 ±x.xxx c」，换档会记入战报。
+`0`–`4` 档位在战役中仍可用，但「前进四」被锁定（接敌必须退出跃迁）；
+`AHEAD` 梯度、四喷口与蓝焰视觉不受影响。
+
+编队航向不再与旗舰姿态刚性绑定：旗舰改航向时 11 艘僚舰保留原航向惯性、被转弯离心侧偏甩开，
+再按各自刚度 / 阻尼 / 转向速率走弧线归队，高速巡航时整队转向更迟钝。
 
 敌舰血条与锁定框、弹道、命中爆炸、护盾波纹、受击红闪、战报、雷达红点与结算面板共同构成
 「看得见的战斗」。旗舰 6 座炮塔的硬点由真实舰体网格包围盒**运行时导出**，不硬编码坐标；
@@ -201,7 +208,7 @@ python tools/validate_bindings.py --root models/NaturalSelection-Structured
 
 `validate_bindings.py` 会读真实 GLB accessor 与 PNG 做 22 项产物级校验（含反向验证），不只读 manifest。
 
-页面暴露了一批只读诊断钩子，便于无头浏览器验证：`__NS_VERSION__` / `__NS_VIEW__` / `__NS_VIEW_STATE__` / `__NS_GESTURE__` / `__NS_BRIDGE__` / `__NS_MODEL_OK__` / `__NS_DRIVE__` / `__NS_FLAME__` / `__NS_CAM__` / `__NS_AUDIO__` / `__NS_NOZZLES__` / `__NS_NOZZLE_FX__` / `__NS_HULL_STRUCTURED__` / `__NS_COMBAT__` / `__NS_TURRETS__`。
+页面暴露了一批只读诊断钩子，便于无头浏览器验证：`__NS_VERSION__` / `__NS_VIEW__` / `__NS_VIEW_STATE__` / `__NS_GESTURE__` / `__NS_BRIDGE__` / `__NS_MODEL_OK__` / `__NS_DRIVE__` / `__NS_FLAME__` / `__NS_CAM__` / `__NS_AUDIO__` / `__NS_NOZZLES__` / `__NS_NOZZLE_FX__` / `__NS_HULL_STRUCTURED__` / `__NS_COMBAT__` / `__NS_TURRETS__` / `__NS_FLEET__`。
 `__NS_COMBAT__` 另提供 `start / salvo / cycle / toggleView / setOrder / advance(dt,n) / exit` 便于无头验证（同步推进战斗逻辑，不依赖 rAF）。
 
 发版流程（语义化版本、git tag、GitHub 主仓库 + Gitee 镜像双推、云端发布态同步与一致性核验）见 [changelog.md](changelog.md) 的「维护约定」。
