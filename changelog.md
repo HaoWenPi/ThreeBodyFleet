@@ -370,4 +370,27 @@ CSS 为 3s 且无残留 `2.15s`、CDN 前缀已换成本轮 `nSXHvq_d9HK1`。
 
 ### 交付对齐
 
-待云端事务、发布与五链路终检完成后回填（本地 / GitHub blob / Gitee blob / 编辑态 / 发布态）。
+| 链路 | 标识 | 与本地源码 |
+| --- | --- | --- |
+| 本地 | `app.js` 153,038 B / md5 `69769364c76e868bf165f0b11912fde4`；`style.css` 28,865 B / md5 `281bef6b76d11ac1d309678cf8c52891` | — |
+| 代码提交 | `c4a6161`（5 个文件 / 1,025 行新增 / 9 行删除） | `index.html` 10,094 B 零改动 |
+| GitHub（主）/ Gitee（镜像）`main` | tag `v1.1.0` 指向本条「交付对齐」回填提交 | 双端 HEAD、默认分支、tag refs 一致；**42 个 blob SHA** 与本地全树逐一相同，`.workbuddy` 未泄漏 |
+| 资料库编辑态 | **v22**（事务 `tx_7KUv9pmn9y5ruatuKSUB40`，baseVersion 21） | `app.js` / `style.css` 与本地、GitHub/Gitee blob 逐字节一致 |
+| 资料库发布态 | **v22** / CDN `hCozI9cy0cn5`（上一版 `nSXHvq_d9HK1`） | 与编辑态逐字节一致；6 个资源 MIME 全部正确；平台标注 225 / 155 / 1 守恒 |
+
+事务 `tx_7KUv9pmn9y5ruatuKSUB40`（baseVersion 21）先把云端 v1.0.6 基线拉回本地，
+自检确认云端基线 == `git HEAD~1`（v1.0.6）、本地文件 == `git HEAD`、`index.html` 三个版本完全一致且本轮不上传；
+`app.js` 相对基线的差异为**删除 5 行 / 新增 679 行 / 16 个变更块**，逐项核对为预期改动，
+并把 `orbitBy` 符号、`AHEAD` 梯度、蓝焰光核、`__NS_BRIDGE__`、`LOOP_S = 3.0` 等红线锚点全部钉住。
+随后**只上传 `app.js`（153,038 B）与 `style.css`（28,865 B）**：PUT 显式带 `Content-Type:
+application/javascript` / `text/css`（官方脚本默认 `application/x-www-form-urlencoded` 会被 CDN `nosniff` 拦截），
+`index.html` 未上传。提交后编辑态 / 发布态同为 **v22**，6 个资源 HEAD 校验 MIME 全对。
+
+五链路终检 `CHAIN_ALL_OK True`：本地 / GitHub blob / Gitee blob / 编辑态 / 发布态的
+`app.js`、`style.css` 逐字节相同；GitHub 与 Gitee 各 **42 个 blob SHA** 与本地全树一致、
+`.workbuddy` 未泄漏；双端默认分支均为 `main`、tag refs 完全一致；本地工作区干净。
+发布态产物已拉回本地，平台标注 `data-page-node-id` 225 / `<!--pnid:` 155 / `inject.js` 1
+与 v21 的 225 个 ID 集合完全一致（旧集合 ⊆ 新集合），并在无头 Edge 中**实跑 27/27 PASS**：
+v1.1.0 版本号、战役激活、6 座运行时炮塔、首波刷怪、锁定「智子探针」、时间推进、
+切目标 / 俯视 / 指令、齐射冷却、完整一局胜利、退出回归航行、`__NS_BOOT__` / `__NS_MODEL_OK__`
+（60,382 面 / 10 部位）均正常。
