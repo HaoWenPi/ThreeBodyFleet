@@ -662,8 +662,38 @@ v1.1.2 手感静态断言 **9/9**、v1.1.3 武器库 / 护盾 / 惯性静态断�
 | 链路 | 版本 / 标识 | 核验结果 |
 | --- | --- | --- |
 | 本地 | `app.js` 201,735 B / md5 `aa3d119748be27e8ccbd62cb79540e34`；`style.css` 36,088 B / md5 `f719325b2998fd85fc2fb3e87159d9ab`；`index.html` 10,094 B 零改动 | 4 个 JS 语法通过、模型绑定 22/22、五套验证全绿、工作区干净 |
-| GitHub / Gitee | 待云端事务、发布与五链路终检完成后回填 | 待云端事务、发布与五链路终检完成后回填 |
-| 资料库编辑态 | 待云端事务、发布与五链路终检完成后回填 | 待云端事务、发布与五链路终检完成后回填 |
-| 资料库发布态 | 待云端事务、发布与五链路终检完成后回填 | 待云端事务、发布与五链路终检完成后回填 |
+| GitHub（主）/ Gitee（镜像）`main` | HEAD `e867588`；tag `v1.2.0` 指向本条「交付对齐」回填提交 | 双端 HEAD、tree、默认分支、tag refs 一致；**42 个 blob SHA** 与本地全树逐一相同，`.workbuddy` 未泄漏 |
+| 资料库编辑态 | **v26**（事务 `tx_5dE6NPdQX0G5nJdWQDmzmB`，baseVersion 25） | `app.js` / `style.css` 与本地、GitHub / Gitee blob 逐字节一致；6 个资源 MIME 全部正确 |
+| 资料库发布态 | **v26** / CDN `RXppe4cz7NH7`（上一版 `LJXgzSy7l5fM`） | 与编辑态逐字节一致；发布态整包拉回本地实跑 **58/58 PASS**；平台标注 225 / 155 / 1 守恒 |
 
-待云端事务、发布与五链路终检完成后回填。
+代码提交 `e867588`（5 个文件 / 708 行新增 / 35 行删除，`index.html` 未进入改动集）一次 `git push` 双推 GitHub + Gitee，双端 HEAD 同为 `e8675882ef1bc3766d678463af065828ed556502`。
+
+云端事务 `tx_5dE6NPdQX0G5nJdWQDmzmB`（baseVersion 25）先把 v1.1.3 编辑态基线
+（`app.js` 176,329 B / `style.css` 31,046 B）拉回本地，自检确认云端基线 == `git HEAD~1`、
+本地两个 artifact == `git HEAD`、`index.html` 三个版本完全一致且本轮不上传。
+`app.js` 相对基线**删除 31 行 / 新增 545 行 / 48 个变更块**，
+`style.css` **纯追加 57 行 / 1 个变更块（0 删除）**；31 条删除行逐条核对均在预期白名单内，
+`orbitBy` 符号、`AHEAD` 梯度、蓝焰 `fy` 与光核倍率、`__NS_BRIDGE__`、`LOOP_S = 3.0`、
+`COMBAT_CRUISE_C = 0.05`、`qFleet.slerp` 等红线零触碰，v1.1.2 / v1.1.3 / v1.2.0 三层锚点与 CSS 锚点全部保留。
+首次预签名 PUT 因网络瞬断连续 3 次 `URLError`，按「同事务重试、不重建事务」约定复用该事务重传成功
+（诊断确认凭证返回的 headers 已带正确 `Content-Type`，最小 headers PUT 直接 200）。
+只上传 `app.js` 与 `style.css`：PUT 显式带 `Content-Type: application/javascript` / `text/css`
+（官方脚本默认值会被 CDN `nosniff` 拦截），`index.html` 未上传。
+提交后编辑态 / 发布态同为 **v26**，6 个资源 HEAD 校验 MIME 全对。
+
+五链路终检 `CHAIN_ALL_OK True`：本地 / GitHub blob / Gitee blob / 编辑态 / 发布态的
+`app.js`、`style.css` 逐字节相同；GitHub API 与 Gitee API 各 **42/42 个 blob SHA** 与本地全树一致、
+`.workbuddy` 未泄漏；双端默认分支均为 `main`、tag refs 完全一致（22 条 refs）；本地工作区干净。
+
+发布态产物已整包拉回本地，平台标注 `data-page-node-id` 225 / `<!--pnid:` 155 / `inject.js` 1
+与 v21 的 225 个 ID 集合完全一致（旧集合 ⊆ 新集合）；空间锚定静态断言 **6/6**、
+v1.1.2 手感静态断言 **9/9**、v1.1.3 武器库 / 护盾 / 惯性静态断言 **9/9**、
+v1.2.0 四关战役静态断言 **28 条 JS + 6 条 CSS**，
+并在无头 Edge 中**实跑 58/58 PASS**：v1.2.0 版本号、战役激活、6 座运行时炮塔
+（box `[37.09, 16.47, 76]`）、首波 3 个敌舰、完整一局胜利（25.1 s / 击毁 13 / 护盾剩 37.3）、
+点 `◈` 按钮启动战役、4 张武器卡 DOM、`__NS_SHIELD__` 穹顶可见、`__NS_ATTITUDE__` 常数、
+`selectWeapon(2)` 切到鱼雷、`standoff / relC / gear / flow / fleet` 诊断钩子、
+首帧 `dt=0` 无运行时错误框，`__NS_BOOT__` / `__NS_MODEL_OK__`（60,382 面 / 10 部位）均正常；
+v1.2.0 新增项逐项实跑：四关配置与 `eliminate,escort,survive,guard` 胜利类型、当前关胜利条件、
+目标文案、`基准 · 均衡` 阵型加成、方位指示器 / 字幕 / 选关按钮 DOM、10 种音效钩子、
+选关面板开关、切到任务 02（护送胜利 + 字幕显示 + 跳过 + 首波刷怪）再切回任务 01。
