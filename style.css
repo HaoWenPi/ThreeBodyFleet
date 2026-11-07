@@ -504,3 +504,60 @@ body.combat-on .nav-data,body.combat-on .drive-panel,body.combat-on .gearbar,bod
   #c-weapons .wpn .w-state{right:4px;top:4px;font-size:9px}
   #c-status{bottom:132px}
 }
+
+/* ---------- v1.2.0 战役：剧情字幕 / 方位指示器 / 结算按钮 / 选关面板 ---------- */
+#combat-layer #c-objective,#combat-layer #c-formation-note{color:var(--cyan);font-size:10px;line-height:1.6}
+#c-result .c-result-btns{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:12px}
+#c-result .c-result-btns button{pointer-events:auto;padding:7px 12px;font:11px var(--sans);color:#d8f4ff;background:rgba(9,34,54,.9);border:1px solid var(--line);border-radius:7px;cursor:pointer}
+#c-result .c-result-btns button:hover{border-color:var(--cyan);color:#fff}
+#c-result .c-result-btns #c-btn-next{border-color:var(--amber);color:var(--amber)}
+#c-story{position:absolute;left:50%;top:22%;transform:translateX(-50%);width:min(620px,86vw);padding:22px 26px 18px;background:linear-gradient(160deg,rgba(4,18,32,.96),rgba(6,28,46,.94));border:1px solid rgba(142,242,255,.35);border-radius:12px;box-shadow:0 0 60px rgba(60,190,235,.18);pointer-events:auto;z-index:6}
+#c-story.hidden{display:none}
+#c-story .st-eyebrow{font:10px var(--mono);letter-spacing:.16em;color:var(--cyan-dim)}
+#c-story .st-title{font-size:21px;color:#eafcff;margin:8px 0 14px;letter-spacing:.04em}
+#c-story .st-lines{font-size:13px;line-height:2.0;color:#bfe2f0}
+#c-story .st-lines div+div{margin-top:3px}
+#c-story button{margin-top:16px;padding:7px 14px;font:11px var(--sans);color:var(--cyan);background:transparent;border:1px solid var(--line);border-radius:7px;cursor:pointer}
+#c-story button:hover{border-color:var(--cyan)}
+#c-offscreen{position:absolute;inset:0;pointer-events:none;z-index:3}
+#c-offscreen .c-oind{position:absolute;display:none;width:0;height:0;color:#ffd18a;font:9px var(--mono)}
+#c-offscreen .c-oind i{position:absolute;left:-5px;top:-11px;width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:11px solid currentColor;filter:drop-shadow(0 0 5px rgba(255,190,110,.7))}
+#c-offscreen .c-oind span{position:absolute;left:7px;top:-7px;white-space:nowrap;background:rgba(4,18,32,.72);padding:1px 4px;border-radius:3px}
+#campaign-select{position:fixed;inset:0;z-index:40;display:flex;align-items:center;justify-content:center;background:rgba(2,10,20,.78);backdrop-filter:blur(6px);padding:16px}
+#campaign-select.hidden{display:none}
+#campaign-select .cs-card{width:min(760px,94vw);max-height:88vh;overflow-y:auto;padding:24px 26px;background:linear-gradient(155deg,rgba(5,20,36,.98),rgba(7,32,52,.97));border:1px solid rgba(142,242,255,.32);border-radius:14px;box-shadow:0 24px 80px rgba(0,0,0,.55)}
+#campaign-select .cs-eyebrow{font:10px var(--mono);letter-spacing:.18em;color:var(--cyan-dim)}
+#campaign-select .cs-title{font-size:24px;color:#eafcff;margin:8px 0 8px}
+#campaign-select .cs-sub{font-size:12px;line-height:1.8;color:#a9cddc;margin-bottom:18px}
+#campaign-select .cs-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+#campaign-select .cs-mission{position:relative;display:flex;flex-direction:column;gap:5px;text-align:left;padding:14px 16px 14px 52px;background:rgba(9,32,52,.78);border:1px solid var(--line);border-radius:10px;color:#d8f0fa;cursor:pointer;transition:border-color .15s,background .15s}
+#campaign-select .cs-mission:hover:not(.locked){border-color:var(--cyan);background:rgba(14,48,74,.9)}
+#campaign-select .cs-mission.locked{opacity:.48;cursor:not-allowed}
+#campaign-select .cs-mission.cleared{border-color:rgba(142,242,255,.5)}
+#campaign-select .cs-no{position:absolute;left:14px;top:14px;font:20px var(--mono);color:var(--cyan-dim)}
+#campaign-select .cs-name{font-size:15px;color:#eafcff}
+#campaign-select .cs-goal{font-size:11px;color:#a9cddc;line-height:1.6}
+#campaign-select .cs-state{font:10px var(--mono);color:var(--cyan);margin-top:4px}
+#campaign-select .cs-mission.locked .cs-state{color:#8fa7b4}
+#campaign-select .cs-foot{display:flex;align-items:center;gap:10px;margin-top:18px;flex-wrap:wrap}
+#campaign-select .cs-foot button{padding:7px 14px;font:11px var(--sans);color:#c8e8f5;background:transparent;border:1px solid var(--line);border-radius:7px;cursor:pointer}
+#campaign-select .cs-foot button:hover{border-color:var(--cyan)}
+#campaign-select .cs-foot span{margin-left:auto;font:10px var(--mono);color:var(--cyan-dim)}
+@media (max-width:640px){
+  #c-story{top:16%;padding:16px 18px 14px}
+  #c-story .st-title{font-size:17px}
+  #c-story .st-lines{font-size:11px;line-height:1.8}
+  #c-result .c-result-btns button{padding:6px 9px;font-size:10px}
+  #campaign-select .cs-grid{grid-template-columns:1fr}
+  #campaign-select .cs-card{padding:18px 16px}
+  #campaign-select .cs-title{font-size:19px}
+  #campaign-select .cs-foot span{margin-left:0;width:100%}
+}
+
+/* ---------- v1.2.0 实机截图修正：窄屏遮挡与文字溢出 ---------- */
+#combat-layer .c-sub{overflow-wrap:anywhere;line-height:1.5}
+#combat-layer #c-progress{font-size:10px}
+@media (max-width:640px){
+  body.combat-on #view-chip{display:none !important}
+  #combat-layer #c-objective,#combat-layer #c-progress,#combat-layer #c-formation-note{font-size:9px}
+}

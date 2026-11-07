@@ -1208,6 +1208,12 @@
   function setGear(n, silent) {
     n = clamp(n, 0, 4);
     if (combat.active && n === 4) {
+      if (combat.warpReady && !combat.warpDone) {
+        combat.warpDone = true;
+        combatLog('引力波广播完成 · 全舰队前进四跃迁脱离');
+        combatFinish(true);
+        return;
+      }
       showToast('接敌中 · 跃迁锁定', 'WARP LOCKED / COMBAT', false);
       return;
     }
@@ -1232,6 +1238,11 @@
     showToast(f.name, f.en + ' / FORMATION', false);
     initAudio();
     beep(560, 0.12, 0.06);
+    if (combat.active) {
+      combatLog('阵型 → ' + f.name + ' · ' + campaignBonus().tag);
+      combatRefreshUI();
+      combatHook();
+    }
   }
 
   function updateHUD() {
@@ -1465,9 +1476,16 @@
     if (!document.getElementById('btn-campaign')) {
       var c = document.createElement('button');
       c.id = 'btn-campaign'; c.type = 'button'; c.textContent = '◈';
-      c.title = '舰队战役 · 战术推演（?campaign=1）';
+      c.title = '舰队战役 · 从任务 01 开始（?campaign=1）';
       c.setAttribute('aria-label', '启动舰队战役战术推演');
       bar.appendChild(c);
+    }
+    if (!document.getElementById('btn-campaign-select')) {
+      var s = document.createElement('button');
+      s.id = 'btn-campaign-select'; s.type = 'button'; s.textContent = '▤';
+      s.title = '战役任务列表 · 选关 / 查看进度';
+      s.setAttribute('aria-label', '打开战役任务列表');
+      bar.appendChild(s);
     }
   }
   /* 版本号徽标：运行时追加到舰籍面板，复用 .kv 行样式，
@@ -1596,7 +1614,7 @@
     if (!t || !t.closest) return false;
     return !!t.closest('button, [data-dock], #toolbar, #panel-dock, #gearbar, ' +
                        '#hintbar, #view-chip, #startscreen, #help-panel, ' +
-                       '.start-card, .help-card, #combat-layer');
+                       '.start-card, .help-card, #combat-layer, #campaign-select, #radar-panel');
   }
 
   var gt = { count: 0, mode: '', startDist: 0, startCx: 0, startCy: 0,
@@ -1720,7 +1738,7 @@
   }, true);
 
   /* 程序版本：与 changelog.md / git tag vX.Y.Z 保持一致，每次发版必须同步更新。 */
-  var APP_VERSION = '1.1.3';
+  var APP_VERSION = '1.2.0';
   window.__NS_VERSION__ = APP_VERSION;
 
   window.__NS_VIEW__ = {
@@ -1742,6 +1760,28 @@
     if (!t || !t.closest) return;
     var launch = t.closest('#btn-campaign');
     if (launch) { e.preventDefault(); combatStart(1); return; }
+    var selBtn = t.closest('#btn-campaign-select');
+    if (selBtn) { e.preventDefault(); campaignSelectOpen(); campaignHook(); return; }
+    var csAct = t.closest('#campaign-select [data-act]');
+    if (csAct) {
+      e.preventDefault();
+      var ca = csAct.getAttribute('data-act');
+      if (ca === 'closeselect') campaignSelectClose();
+      else if (ca === 'resetprogress') {
+        combat.progress = { cleared: [], best: {}, storage: false };
+        campaignSave(); campaignSelectOpen();
+      }
+      campaignHook();
+      return;
+    }
+    var mi = t.closest('#campaign-select [data-mission]');
+    if (mi) {
+      e.preventDefault();
+      combatStart(parseInt(mi.getAttribute('data-mission'), 10));
+      return;
+    }
+    var rd = t.closest('#radar');
+    if (rd && combat.active) { campaignRadarPick(e.clientX, e.clientY); return; }
     var wpn = t.closest('#c-weapons [data-weapon]');
     if (wpn && combat.active) {
       e.preventDefault();
@@ -1752,7 +1792,11 @@
     if (!act || !combat.active) return;
     e.preventDefault();
     var a = act.getAttribute('data-act');
-    if (a === 'target') combatCycleTarget();
+    if (a === 'next') { combatStart(combat.mission + 1); return; }
+    else if (a === 'retry') { combatStart(combat.mission); return; }
+    else if (a === 'select') { campaignSelectOpen(); campaignHook(); return; }
+    else if (a === 'skipstory') { campaignStorySkip(); return; }
+    else if (a === 'target') combatCycleTarget();
     else if (a === 'salvo') combatSalvo();
     else if (a === 'tactical') combatToggleTactical();
     else if (a === 'focus' || a === 'evade') combatSetOrder(a);
@@ -1767,7 +1811,11 @@
     keys[k] = true;
     if (combat.active) {
       if (combat.phase === 'result') {
-        if (k === 'enter') { combatStart(combat.mission); return; }
+        if (k === 'enter') {
+          combatStart(combat.result === 'win' && combat.mission < CAMPAIGN_MISSIONS.length
+            ? combat.mission + 1 : combat.mission);
+          return;
+        }
         if (k === 'escape') { combatExit(); return; }
         return;
       }
@@ -2317,7 +2365,10 @@
     // 其行为与 v1.1.2 逐字节等价（已有战斗回归的基线）。
     weapon: 0, weaponCd: [0, 0, 0, 0], beams: [],
     shieldMax: 100, shieldIdle: 0, shieldLock: 0, shieldHit: 0,
-    shieldOver: false, shieldState: 'online', shieldMesh: null, shieldMat: null
+    shieldOver: false, shieldState: 'online', shieldMesh: null, shieldMat: null,
+    // v1.2.0 战役：关卡配置 / 剧情字幕 / 存档 / 撤离状态
+    missionCfg: null, progress: null, storyUntil: 0,
+    warpReady: false, warpDone: false, indicators: 0
   };
   var COMBAT_MISSION = { name: '接触 · 智子盲区', en: 'CONTACT / SOPHON BLIND ZONE', limit: 150 };
   var COMBAT_WAVES = [
@@ -2348,14 +2399,394 @@
     { key: 'ion',     name: '离子炮', en: 'ION CANNON',    cd: 2.9,  dmg: 6,
       hint: '瘫痪武器 · 减速 4 s', color: '#c2a4ff' }
   ];
+  /* ================= v1.2.0 战役系统 =================
+     四关 = 智子盲区（全歼） / 水滴（护送撤离，水滴不可击毁） / 猜疑链（生存推演） /
+     引力波广播（守卫后按 4 跃迁撤离）。第 1 关严格沿用 COMBAT_WAVES / COMBAT_SPEC /
+     全歼胜利条件 / 阵型基准（无任何加成），保证 v1.1.3 的战斗回归等价。
+     剧情用「舰队战术推演系统」框架，不改写《三体》正史结局；全部资源程序化生成，
+     全部 UI 运行时创建，index.html 零改动。 */
+  var CAMPAIGN_STORE = 'ns-campaign-v1';
+  var CAMPAIGN_WAVES_2 = [
+    { at: 0,  list: [['droplet', 1], ['probe', 2]] },
+    { at: 26, list: [['probe', 3], ['raider', 1]] },
+    { at: 50, list: [['raider', 2], ['probe', 2]] },
+    { at: 72, list: [['probe', 2]] }
+  ];
+  var CAMPAIGN_WAVES_3 = [
+    { at: 0,  list: [['mirror', 3]] },
+    { at: 22, list: [['mirror', 2], ['probe', 2]] },
+    { at: 44, list: [['mirror', 3]] },
+    { at: 62, list: [['mirror', 2], ['raider', 1]] }
+  ];
+  var CAMPAIGN_WAVES_4 = [
+    { at: 0,  list: [['lancer', 3]] },
+    { at: 20, list: [['lancer', 2], ['raider', 2]] },
+    { at: 40, list: [['probe', 3], ['lancer', 2]] },
+    { at: 58, list: [['raider', 2], ['lancer', 2]] }
+  ];
+  var CAMPAIGN_SPEC = {
+    probe:   COMBAT_SPEC.probe,
+    raider:  COMBAT_SPEC.raider,
+    droplet: { name: '水滴', hp: 99999, speed: 42, dmg: 14, cd: 2.1, invulnerable: true },
+    mirror:  { name: '逃亡舰 · 猜疑链', hp: 78, speed: 20, dmg: 11, cd: 2.9 },
+    lancer:  { name: '光粒探针', hp: 48, speed: 24, dmg: 10, cd: 2.4 }
+  };
+  var CAMPAIGN_MISSIONS = [
+    {
+      id: 1, name: '接触 · 智子盲区', en: 'CONTACT / SOPHON BLIND ZONE',
+      goal: '清除全部敌对信号', win: 'eliminate', limit: 150,
+      waves: COMBAT_WAVES, spec: COMBAT_SPEC,
+      brief: [
+        '舰队战术推演系统 · 任务 01',
+        '智子锁死了基础物理实验结果，舰队必须学会在「被观测」的战场上作战。',
+        '目标：清除全部模拟敌对信号，验证自然选择号的指挥链路。'
+      ]
+    },
+    {
+      id: 2, name: '末日战役 · 水滴', en: 'DOOMSDAY / THE DROPLET',
+      goal: '护送僚舰撤离 · 水滴不可击毁', win: 'escort', limit: 110,
+      hold: 72, keepWings: 6, waves: CAMPAIGN_WAVES_2, spec: CAMPAIGN_SPEC,
+      brief: [
+        '舰队战术推演系统 · 任务 02',
+        '一枚强相互作用力探测器出现在阵列前方，主炮对它没有任何意义。',
+        '原著里两千艘战舰在两小时内被它逐一击穿。推演的胜利条件不是击毁，',
+        '而是在水滴的追猎下撑过撤离窗口，并保住至少 6 艘僚舰。'
+      ]
+    },
+    {
+      id: 3, name: '猜疑链 · 黑暗战役', en: 'DARK BATTLE / SUSPICION CHAIN',
+      goal: '在猜疑链推演中生存 68 秒', win: 'survive', limit: 100,
+      hold: 68, waves: CAMPAIGN_WAVES_3, spec: CAMPAIGN_SPEC,
+      brief: [
+        '舰队战术推演系统 · 任务 03',
+        '逃亡舰队之间无法确认对方是否先开火，猜疑链在真空里没有尽头。',
+        '雷达上的信号与己方舰影几乎同色，指挥官只能靠锁定框分辨敌我。',
+        '这是一场不追求歼灭的推演：活到计时结束，就算看穿了这条链。'
+      ]
+    },
+    {
+      id: 4, name: '引力波广播 · 守卫', en: 'GRAVITATIONAL WAVE / GUARD',
+      goal: '守卫广播阵列 62 秒后跃迁撤离', win: 'guard', limit: 110,
+      hold: 62, waves: CAMPAIGN_WAVES_4, spec: CAMPAIGN_SPEC,
+      brief: [
+        '舰队战术推演系统 · 任务 04',
+        '广播阵列充能期间，自然选择号必须钉在这片空间里。',
+        '撑过 62 秒，阵列完成发射；随后按 4 让全舰队前进四跃迁脱离。',
+        '推演到此结束。真实历史没有被改写，我们只是把指挥刀演练了一遍。'
+      ]
+    }
+  ];
+  /* 阵型战术加成：0 号「楔形前锋」是基准（全 1.0），保证默认手感与 v1.1.3 一致。
+     F 键切到其余四套才生效，战列横队只加成能量炮主炮齐射。 */
+  var CAMPAIGN_BONUS = [
+    { tag: '基准 · 均衡', dmg: 1.00, soak: 1.00, wing: 1.00, evade: 0.00 },
+    { tag: '环形护卫 · 拦截 −25% 伤害', dmg: 1.00, soak: 0.75, wing: 1.00, evade: 0.00 },
+    { tag: '双列巡航 · 僚舰射速 +20%', dmg: 1.00, soak: 1.00, wing: 0.80, evade: 0.00 },
+    { tag: '战列横队 · 主炮伤害 +25%', dmg: 1.25, soak: 1.00, wing: 1.00, evade: 0.00 },
+    { tag: '松散巡航 · 规避 +25%', dmg: 1.00, soak: 1.00, wing: 1.00, evade: 0.25 }
+  ];
+  /* 程序化战斗音效：只在既有 WebAudio 图上临时挂振荡器 + 低通 + 包络，
+     连到 audio.master（自动跟随静音与总音量），不改动空灵气流环境音的任何节点。 */
+  var COMBAT_SFX = {
+    energy:  { wave: 'sawtooth', f0: 460,  f1: 96,   d: 0.20, vol: 0.075, cut: 1800 },
+    laser:   { wave: 'sine',     f0: 1500, f1: 3100, d: 0.11, vol: 0.055, cut: 6000 },
+    torpedo: { wave: 'triangle', f0: 180,  f1: 44,   d: 0.36, vol: 0.090, cut: 900  },
+    ion:     { wave: 'square',   f0: 680,  f1: 220,  d: 0.28, vol: 0.045, cut: 2200 },
+    hit:     { wave: 'sawtooth', f0: 260,  f1: 70,   d: 0.13, vol: 0.050, cut: 1400 },
+    explode: { wave: 'sawtooth', f0: 150,  f1: 38,   d: 0.42, vol: 0.100, cut: 700  },
+    shield:  { wave: 'sine',     f0: 880,  f1: 1340, d: 0.19, vol: 0.050, cut: 5000 },
+    wave:    { wave: 'square',   f0: 300,  f1: 520,  d: 0.17, vol: 0.045, cut: 1600 },
+    win:     { wave: 'sine',     f0: 520,  f1: 790,  d: 0.52, vol: 0.075, cut: 4000 },
+    lose:    { wave: 'sawtooth', f0: 230,  f1: 58,   d: 0.62, vol: 0.080, cut: 900  }
+  };
+  var combatSfxLog = { count: 0, last: '', kinds: {} };
+  function combatSfx(kind) {
+    combatSfxLog.count++;
+    combatSfxLog.last = kind;
+    combatSfxLog.kinds[kind] = (combatSfxLog.kinds[kind] || 0) + 1;
+    if (!audio || state.muted || !audio.ctx) return;
+    try {
+      var S = COMBAT_SFX[kind] || COMBAT_SFX.hit;
+      var ctx = audio.ctx, t0 = ctx.currentTime;
+      var o = ctx.createOscillator(), g = ctx.createGain(), f = ctx.createBiquadFilter();
+      o.type = S.wave;
+      o.frequency.setValueAtTime(S.f0, t0);
+      o.frequency.exponentialRampToValueAtTime(S.f1, t0 + S.d);
+      f.type = 'lowpass'; f.frequency.value = S.cut;
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.exponentialRampToValueAtTime(S.vol, t0 + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + S.d);
+      o.connect(f); f.connect(g); g.connect(audio.master);
+      o.start(t0); o.stop(t0 + S.d + 0.02);
+    } catch (e) {}
+  }
+  /* 存档：localStorage 不可用时静默降级为「本次会话内有效」，绝不抛异常中断战斗。 */
+  function campaignLoad() {
+    var p = { cleared: [], best: {}, storage: false };
+    try {
+      var raw = window.localStorage.getItem(CAMPAIGN_STORE);
+      p.storage = true;
+      if (raw) {
+        var o = JSON.parse(raw);
+        if (o && Object.prototype.toString.call(o.cleared) === '[object Array]') {
+          p.cleared = o.cleared.filter(function (v) {
+            return typeof v === 'number' && v >= 1 && v <= CAMPAIGN_MISSIONS.length;
+          });
+        }
+        if (o && o.best && typeof o.best === 'object') p.best = o.best;
+      }
+    } catch (e) { p.storage = false; }
+    return p;
+  }
+  function campaignSave() {
+    if (!combat.progress) return;
+    try {
+      window.localStorage.setItem(CAMPAIGN_STORE, JSON.stringify({
+        v: 1, cleared: combat.progress.cleared, best: combat.progress.best
+      }));
+      combat.progress.storage = true;
+    } catch (e) { combat.progress.storage = false; }
+  }
+  function campaignUnlocked(n) {
+    if (!combat.progress) combat.progress = campaignLoad();
+    return n <= 1 || combat.progress.cleared.indexOf(n - 1) >= 0 ||
+           combat.progress.cleared.indexOf(n) >= 0;
+  }
+  function campaignRecord(win) {
+    if (!win || !combat.progress) return;
+    var id = combat.mission;
+    if (combat.progress.cleared.indexOf(id) < 0) combat.progress.cleared.push(id);
+    var b = combat.progress.best[id];
+    var rec = { time: Math.round(combat.time), kills: combat.kills, hull: Math.round(combat.hull) };
+    if (!b || rec.time < b.time) combat.progress.best[id] = rec;
+    campaignSave();
+  }
+  function campaignBonus() { return CAMPAIGN_BONUS[state.formation] || CAMPAIGN_BONUS[0]; }
+  function pad2(n) { return (n < 10 ? '0' : '') + String(n); }
+  function campaignCheckVictory() {
+    var cfg = combat.missionCfg;
+    if (!cfg) return false;
+    if (cfg.win === 'eliminate')
+      return combat.wave >= cfg.waves.length && combatAliveEnemies() === 0;
+    if (cfg.win === 'escort')
+      return combat.time >= cfg.hold && combatAliveWings() >= cfg.keepWings;
+    if (cfg.win === 'survive') return combat.time >= cfg.hold;
+    if (cfg.win === 'guard') return combat.warpDone === true;
+    return false;
+  }
+  function campaignTick() {
+    var cfg = combat.missionCfg;
+    var st = document.getElementById('c-story');
+    if (st && combat.storyUntil > 0 && combat.time >= combat.storyUntil) {
+      combat.storyUntil = 0;
+      st.classList.add('hidden');
+    }
+    if (cfg && cfg.win === 'guard' && !combat.warpReady && combat.time >= cfg.hold) {
+      combat.warpReady = true;
+      combatLog('广播阵列充能完毕 · 按 4 跃迁撤离');
+      showToast('按 4 跃迁撤离', 'BROADCAST COMPLETE / WARP OUT', false);
+      combatSfx('wave');
+    }
+    if (cfg && cfg.win === 'guard' && combat.warpReady && combat.time >= cfg.hold + 18) {
+      combat.warpDone = true;
+      combatLog('自动跃迁程序接管 · 舰队脱离');
+    }
+  }
+  function campaignObjective() {
+    var cfg = combat.missionCfg;
+    if (!cfg) return '';
+    if (cfg.win === 'eliminate')
+      return '信号 ' + combatAliveEnemies() + ' · 波 ' + combat.wave + '/' + cfg.waves.length;
+    if (cfg.win === 'escort')
+      return '撤离 ' + Math.max(0, Math.ceil(cfg.hold - combat.time)) + 's · 僚舰 ' +
+             combatAliveWings() + '/' + cfg.keepWings;
+    if (cfg.win === 'survive')
+      return '生存 ' + Math.max(0, Math.ceil(cfg.hold - combat.time)) + 's · 舰体 ' +
+             Math.round(combat.hull) + '%';
+    return combat.warpReady ? '按 4 跃迁撤离' :
+      '守卫 ' + Math.max(0, Math.ceil(cfg.hold - combat.time)) + 's';
+  }
+  function campaignStoryShow(cfg) {
+    var box = document.getElementById('c-story');
+    if (!box) {
+      // ?campaign=1&mission=N 深链会在 combatRefreshUI 之前走到这里，先确保 UI 已创建。
+      combatEnsureUI();
+      box = document.getElementById('c-story');
+    }
+    if (!box) return;
+    var eb = document.getElementById('c-story-eyebrow');
+    var ti = document.getElementById('c-story-title');
+    var ln = document.getElementById('c-story-lines');
+    if (eb) eb.textContent = 'TACTICAL SIMULATION / MISSION ' + pad2(cfg.id);
+    if (ti) ti.textContent = cfg.name;
+    if (ln) ln.innerHTML = cfg.brief.map(function (s) { return '<div>' + s + '</div>'; }).join('');
+    box.classList.remove('hidden');
+    combat.storyUntil = combat.time + 6.0;
+  }
+  function campaignStorySkip() {
+    combat.storyUntil = 0;
+    var st = document.getElementById('c-story');
+    if (st) st.classList.add('hidden');
+    campaignHook();
+  }
+  function campaignSelectOpen() {
+    var box = document.getElementById('campaign-select');
+    if (!box) {
+      box = document.createElement('div');
+      box.id = 'campaign-select';
+      document.body.appendChild(box);
+    }
+    if (!combat.progress) combat.progress = campaignLoad();
+    var h = ['<div class="cs-card">',
+      '<div class="cs-eyebrow">FLEET CAMPAIGN / 舰队战役 · 战术推演</div>',
+      '<div class="cs-title">末日战役 · 四段推演</div>',
+      '<div class="cs-sub">剧情采用「舰队战术推演系统」框架，不改写《三体》正史。通关自动解锁下一任务，进度保存在本机浏览器。</div>',
+      '<div class="cs-grid">'];
+    CAMPAIGN_MISSIONS.forEach(function (m) {
+      var un = campaignUnlocked(m.id), cl = combat.progress.cleared.indexOf(m.id) >= 0;
+      var b = combat.progress.best[m.id];
+      h.push('<button type="button" class="cs-mission' + (un ? '' : ' locked') +
+        (cl ? ' cleared' : '') + '" data-mission="' + m.id + '"' + (un ? '' : ' disabled') + '>' +
+        '<span class="cs-no">' + pad2(m.id) + '</span>' +
+        '<span class="cs-name">' + m.name + '</span>' +
+        '<span class="cs-goal">' + m.goal + '</span>' +
+        '<span class="cs-state">' + (cl ? '✓ 已通关' + (b ? ' · ' + b.time + ' s' : '') :
+          un ? '可进入 →' : '未解锁 · 需先通过任务 ' + pad2(m.id - 1)) + '</span></button>');
+    });
+    h.push('</div><div class="cs-foot">');
+    h.push('<button type="button" data-act="closeselect">返回</button>');
+    h.push('<button type="button" data-act="resetprogress">清除进度</button>');
+    h.push('<span>本机存档：' + (combat.progress.storage ? '可用' : '不可用（会话内有效）') + '</span>');
+    h.push('</div></div>');
+    box.innerHTML = h.join('');
+    box.classList.remove('hidden');
+  }
+  function campaignSelectClose() {
+    var box = document.getElementById('campaign-select');
+    if (box) box.classList.add('hidden');
+  }
+  /* 屏幕边缘方位指示器：把战场空间里的敌舰投影到相机 NDC，
+     落在视野外的按边缘方向贴边显示，带距离数字，锁定目标高亮。 */
+  function campaignIndicators() {
+    var box = document.getElementById('c-offscreen');
+    if (!box || !combat.active || !combat.root) return;
+    while (box.children.length < 6) {
+      var d = document.createElement('div');
+      d.className = 'c-oind';
+      d.innerHTML = '<i></i><span></span>';
+      box.appendChild(d);
+    }
+    var n = 0;
+    for (var i = 0; i < combat.enemies.length && n < 6; i++) {
+      var e = combat.enemies[i];
+      if (!e.alive) continue;
+      cTmpA.copy(e.pos);
+      combat.root.localToWorld(cTmpA);
+      cTmpA.project(camera);
+      var behind = cTmpA.z >= 1;
+      var ax = behind ? -cTmpA.x : cTmpA.x, ay = behind ? -cTmpA.y : cTmpA.y;
+      var inside = !behind && Math.abs(ax) < 0.90 && Math.abs(ay) < 0.86;
+      var node = box.children[n++];
+      if (inside) { node.style.display = 'none'; continue; }
+      var sc = Math.max(Math.abs(ax) / 0.88, Math.abs(ay) / 0.84, 0.0001);
+      var nx = ax / sc, ny = ay / sc;
+      node.style.display = 'block';
+      node.style.left = ((nx * 0.5 + 0.5) * 100).toFixed(1) + '%';
+      node.style.top = ((-ny * 0.5 + 0.5) * 100).toFixed(1) + '%';
+      node.style.transform = 'translate(-50%,-50%) rotate(' +
+        (Math.atan2(-ny, nx) * 180 / Math.PI + 90).toFixed(0) + 'deg)';
+      node.style.opacity = (e === combat.target) ? '1' : '0.70';
+      var sp = node.querySelector('span');
+      if (sp) sp.textContent = (e.pos.length() / 10).toFixed(0);
+    }
+    for (; n < 6; n++) box.children[n].style.display = 'none';
+    combat.indicators = n;
+  }
+  /* 雷达点选：把点击位置换回 180×180 canvas 坐标，找最近的敌舰红点。 */
+  function campaignRadarPick(cx0, cy0) {
+    if (!combat.active || !el.radar) return false;
+    var r = el.radar.getBoundingClientRect();
+    if (!r.width || !r.height) return false;
+    var px = (cx0 - r.left) / r.width * 180 - 90;
+    var py = (cy0 - r.top) / r.height * 180 - 90;
+    var best = null, bd = 17;
+    for (var i = 0; i < combat.enemies.length; i++) {
+      var e = combat.enemies[i];
+      if (!e.alive) continue;
+      var ex = clamp(e.pos.x * 0.22, -78, 78), ey = clamp(e.pos.z * 0.22, -78, 78);
+      var d = Math.sqrt((ex - px) * (ex - px) + (ey - py) * (ey - py));
+      if (d < bd) { bd = d; best = e; }
+    }
+    if (best) {
+      combat.target = best;
+      combatLog('雷达指定目标 · ' + best.name + ' #' + best.id);
+      combatSfx('wave');
+      combatRefreshUI();
+      combatHook();
+    }
+    return true;
+  }
+  window.__NS_CAMPAIGN__ = {
+    missions: CAMPAIGN_MISSIONS.map(function (m) {
+      return { id: m.id, name: m.name, win: m.win, limit: m.limit, hold: m.hold || 0,
+               waves: m.waves.length, brief: m.brief.length, goal: m.goal };
+    }),
+    mission: 0, unlocked: 1, cleared: [], storage: false, story: false,
+    bonus: '基准 · 均衡', formation: 0, warpReady: false, warpDone: false,
+    objective: '', phase: 'idle', selectsOpen: false, indicators: 0, missionCfg: null, missionCfg: null,
+    start: function (n) { combatStart(n); campaignHook(); return window.__NS_CAMPAIGN__; },
+    selectOpen: function () { campaignSelectOpen(); campaignHook(); return window.__NS_CAMPAIGN__; },
+    selectClose: function () { campaignSelectClose(); campaignHook(); return window.__NS_CAMPAIGN__; },
+    skipStory: function () { campaignStorySkip(); return window.__NS_CAMPAIGN__; },
+    resetProgress: function () {
+      combat.progress = { cleared: [], best: {}, storage: false };
+      campaignSave(); campaignHook();
+      return window.__NS_CAMPAIGN__;
+    },
+    radarPick: function (x, y) { return campaignRadarPick(x, y); },
+    snapshot: function () { campaignHook(); return window.__NS_CAMPAIGN__; }
+  };
+  window.__NS_SFX__ = { log: combatSfxLog, kinds: Object.keys(COMBAT_SFX) };
+  function campaignHook() {
+    var H = window.__NS_CAMPAIGN__;
+    if (!H) return;
+    H.mission = combat.mission;
+    H.missionCfg = combat.missionCfg ? combat.missionCfg.win : null;
+    H.unlocked = CAMPAIGN_MISSIONS.filter(function (m) { return campaignUnlocked(m.id); }).length;
+    H.cleared = combat.progress ? combat.progress.cleared.slice() : [];
+    H.storage = !!(combat.progress && combat.progress.storage);
+    H.story = combat.storyUntil > 0;
+    H.bonus = campaignBonus().tag;
+    H.formation = state.formation;
+    H.warpReady = combat.warpReady;
+    H.warpDone = combat.warpDone;
+    H.objective = combat.missionCfg ? campaignObjective() : '';
+    H.phase = combat.phase;
+    H.indicators = combat.indicators;
+    var box = document.getElementById('campaign-select');
+    H.selectsOpen = !!box && !box.classList.contains('hidden');
+  }
+  /* 新敌人几何 / 材质：全部程序化，零新增资源文件。 */
+  var cGeoDroplet = new THREE.SphereGeometry(4.6, 22, 16);
+  var cMatDroplet = new THREE.MeshStandardMaterial({
+    color: 0xe8f9ff, emissive: 0x5f9fc0, emissiveIntensity: 0.4,
+    metalness: 1.0, roughness: 0.02
+  });
+  var cMatMirror = new THREE.MeshStandardMaterial({
+    color: 0x9fc4d8, emissive: 0x3a6fa8, emissiveIntensity: 1.0,
+    metalness: 0.8, roughness: 0.3
+  });
+
   var COMBAT_UI_HTML = [
     '<div id="c-mission" class="c-card">',
-    '  <div class="c-eyebrow">MISSION 01 · TACTICAL SIMULATION</div>',
-    '  <div class="c-title">接触 · 智子盲区</div>',
-    '  <div class="c-row"><span>战役目标</span><b>清除全部敌对信号</b></div>',
+    '  <div class="c-eyebrow" id="c-mission-eyebrow">MISSION 01 · TACTICAL SIMULATION</div>',
+    '  <div class="c-title" id="c-mission-title">接触 · 智子盲区</div>',
+    '  <div class="c-row"><span>战役目标</span><b id="c-goal">清除全部敌对信号</b></div>',
     '  <div class="c-row"><span>剩余敌舰</span><b id="c-remain">0</b></div>',
     '  <div class="c-row"><span>推演计时</span><b id="c-time">0:00</b></div>',
     '  <div class="c-row"><span>接战距离</span><b id="c-standoff">16.5 千 km</b></div>',
+    '  <div class="c-row"><span>任务进度</span><b id="c-progress">01 / 04</b></div>',
+    '  <div class="c-sub" id="c-objective">清除全部敌对信号</div>',
     '</div>',
     '<div id="c-target" class="c-card">',
     '  <div class="c-eyebrow">TARGET LOCK / 锁定目标</div>',
@@ -2369,6 +2800,8 @@
     '  <div class="c-row"><span>护盾</span><b id="c-shield">100%</b></div>',
     '  <div class="c-bar"><i id="c-shieldbar"></i></div>',
     '  <div class="c-sub" id="c-shieldnote">能量护盾 · 在线</div>',
+    '  <div class="c-row"><span>战术阵型</span><b id="c-formation">楔形前锋</b></div>',
+    '  <div class="c-sub" id="c-formation-note">F 切换 · 基准 · 均衡</div>',
     '  <div class="c-row"><span>舰队指令</span><b id="c-order">集火 FOCUS</b></div>',
     '  <div class="c-bar"><i id="c-salvobar"></i></div>',
     '  <div class="c-sub" id="c-salvo">主炮齐射 · 就绪</div>',
@@ -2398,8 +2831,20 @@
     '  <div class="c-eyebrow">SIMULATION RESULT / 推演结算</div>',
     '  <div class="c-big" id="c-result-title">推演完成</div>',
     '  <div class="c-line" id="c-result-body"></div>',
-    '  <div class="c-sub">Enter 再来一次 · Esc 返回自由航行</div>',
+    '  <div class="c-sub" id="c-result-hint">Enter 再来一次 · Esc 返回自由航行</div>',
+    '  <div class="c-result-btns">',
+    '    <button type="button" data-act="next" id="c-btn-next">下一关 →</button>',
+    '    <button type="button" data-act="select">任务列表</button>',
+    '    <button type="button" data-act="retry">再来一次</button>',
+    '  </div>',
     '</div>',
+    '<div id="c-story" class="hidden">',
+    '  <div class="st-eyebrow" id="c-story-eyebrow"></div>',
+    '  <div class="st-title" id="c-story-title"></div>',
+    '  <div class="st-lines" id="c-story-lines"></div>',
+    '  <button type="button" data-act="skipstory">跳过字幕 →</button>',
+    '</div>',
+    '<div id="c-offscreen"></div>',
     '<div id="c-hit"></div>'
   ].join('\n');
 
@@ -2697,6 +3142,7 @@
       combatLog('护盾过载 · 冷却 4 s');
     }
     combatLog('旗舰护盾 −' + Math.round(absorbed));
+    combatSfx('shield');
     if (combat.hull <= 0) combatFinish(false);
   }
   function combatShield(dt) {
@@ -2719,9 +3165,11 @@
     }
   }
   function combatSpawn(kind, idx, total) {
-    var spec = COMBAT_SPEC[kind];
-    var mesh = new THREE.Mesh(kind === 'probe' ? cGeoProbe : cGeoRaider,
-                              (kind === 'probe' ? cMatProbe : cMatRaider).clone());
+    var spec = combat.missionCfg.spec[kind] || COMBAT_SPEC[kind] || COMBAT_SPEC.probe;
+    var geo = kind === 'probe' ? cGeoProbe : kind === 'droplet' ? cGeoDroplet : cGeoRaider;
+    var base = kind === 'probe' ? cMatProbe : kind === 'droplet' ? cMatDroplet
+             : kind === 'mirror' ? cMatMirror : cMatRaider;
+    var mesh = new THREE.Mesh(geo, base.clone());
     var ang = (idx / Math.max(total, 1)) * PI2 + Math.random() * 0.6;
     var pos = new THREE.Vector3(
       Math.cos(ang) * (70 + Math.random() * 90),
@@ -2733,8 +3181,10 @@
     var e = {
       id: combat.nextId++, kind: kind, name: spec.name, hp: spec.hp, maxHp: spec.hp,
       pos: pos, mesh: mesh, alive: true, cd: 0.6 + Math.random() * 1.2,
-      seed: Math.random() * 10, orbit: ang, ion: 0,
-      baseEmissive: kind === 'probe' ? 0x2ba7d8 : 0xa02a2a
+      seed: Math.random() * 10, orbit: ang, ion: 0, spec: spec,
+      invulnerable: !!spec.invulnerable,
+      baseEmissive: kind === 'probe' ? 0x2ba7d8 : kind === 'droplet' ? 0x5f9fc0
+                  : kind === 'mirror' ? 0x3a6fa8 : 0xa02a2a
     };
     combat.enemies.push(e);
     return e;
@@ -2770,7 +3220,14 @@
   }
   function combatDamageEnemy(e, dmg) {
     if (!e || !e.alive) return;
+    if (e.invulnerable) {
+      combatBurst(e.pos, 0xdff6ff, 2.0);
+      combatLog('强相互作用力外壳 · 攻击被完全反射');
+      combatSfx('shield');
+      return;
+    }
     e.hp -= dmg;
+    combatSfx('hit');
     combatBurst(e.pos, 0xa9f4ff, 1.4);
     if (e.hp <= 0) {
       e.alive = false; e.mesh.visible = false;
@@ -2779,10 +3236,12 @@
       combatLog('击毁 ' + e.name + ' · 累计 ' + combat.kills);
       if (combat.target === e) combat.target = combatPickTarget();
       beep(760, 0.09, 0.05);
+      combatSfx('explode');
     }
   }
   function combatDamageFleet(dmg) {
-    if (combat.order === 'evade' && Math.random() < 0.40) {
+    dmg *= campaignBonus().soak;
+    if (combat.order === 'evade' && Math.random() < 0.40 + campaignBonus().evade) {
       combatLog('规避成功 · 敌弹未命中');
       return;
     }
@@ -2817,11 +3276,12 @@
     for (var k = 0; k < combat.enemies.length; k++) if (combat.enemies[k].alive) alive.push(combat.enemies[k]);
     var first = alive.indexOf(e);
     if (first > 0) { alive.splice(first, 1); alive.unshift(e); }
-    if (spec.key === 'energy') combatFireEnergy(alive, combat.order === 'focus' ? 12 : 9);
+    if (spec.key === 'energy') combatFireEnergy(alive, (combat.order === 'focus' ? 12 : 9) * campaignBonus().dmg);
     else if (spec.key === 'laser') combatFireLaser(e);
     else if (spec.key === 'torpedo') combatFireTorpedo(e);
     else combatFireIon(e);
     initAudio();
+    combatSfx(spec.key);
     combatRefreshUI();
     combatHook();
     return true;
@@ -2834,7 +3294,7 @@
   function combatWingFire(dt) {
     combat.wingCd -= dt;
     if (combat.wingCd > 0 || !combat.target || !combat.target.alive) return;
-    combat.wingCd = combat.order === 'focus' ? 1.3 : 2.1;
+    combat.wingCd = (combat.order === 'focus' ? 1.3 : 2.1) * campaignBonus().wing;
     var alive = [];
     for (var i = 0; i < wings.length; i++) if (wings[i].combatHp > 0) alive.push(wings[i]);
     if (!alive.length) return;
@@ -2848,7 +3308,7 @@
     for (var i = 0; i < combat.enemies.length; i++) {
       var e = combat.enemies[i];
       if (!e.alive) continue;
-      var spec = COMBAT_SPEC[e.kind];
+      var spec = e.spec || combat.missionCfg.spec[e.kind] || COMBAT_SPEC[e.kind];
       var dist = e.pos.length();
       // 轨道半径随接战距离联动：换档后敌阵整体逼近 / 退开，而不是永远钉在 165。
       var so = combat.standoff;
@@ -2863,11 +3323,19 @@
                   Math.sin(t * 0.5 + e.seed) * 26,
                   -Math.abs(Math.sin(e.orbit)) * rr - so * 0.36);
       }
+      if (e.kind === 'droplet') {
+        // 强相互作用力探测器：不进入常规轨道，高速掠过舰队后回环，任何武器都无法击穿。
+        e.orbit += dt * 0.9 * ionSlow;
+        e.pos.set(Math.cos(e.orbit) * so * 0.55,
+                  Math.sin(e.orbit * 1.7) * 18,
+                  -so * 0.55 - Math.abs(Math.sin(e.orbit)) * so * 0.5);
+      }
       e.mesh.position.copy(e.pos);
       e.mesh.rotation.y += dt * 1.2;
       e.mesh.rotation.x += dt * 0.5;
       e.mesh.material.emissive.setHex(e.ion > 0 ? 0x8a5cff : e.baseEmissive);
       e.cd -= dt;
+      if (combat.time < combat.storyUntil) e.cd = Math.max(e.cd, 0.4);
       if (e.cd <= 0) {
         e.cd = spec.cd * (e.ion > 0 ? 1.8 : 1) * (0.8 + Math.random() * 0.4);
         combatEnemyFire(e, spec);
@@ -2930,11 +3398,12 @@
     }
   }
   function combatWaves() {
-    while (combat.wave < COMBAT_WAVES.length &&
-           (combat.time >= COMBAT_WAVES[combat.wave].at ||
+    var waves = combat.missionCfg.waves;
+    while (combat.wave < waves.length &&
+           (combat.time >= waves[combat.wave].at ||
             (combat.wave > 0 && combatAliveEnemies() === 0 && combat.time - combat.waveAt >= 5))) {
       if (combatAliveEnemies() >= 7) break;
-      var wv = COMBAT_WAVES[combat.wave];
+      var wv = waves[combat.wave];
       var spawned = 0;
       for (var i = 0; i < wv.list.length; i++) {
         for (var j = 0; j < wv.list[i][1]; j++) {
@@ -2947,6 +3416,7 @@
       combatLog('第 ' + combat.wave + ' 波接敌 · ' + spawned + ' 个信号');
       showToast('第 ' + combat.wave + ' 波接敌', 'HOSTILES INBOUND', false);
       beep(330, 0.22, 0.07);
+      combatSfx('wave');
       if (!combat.target) combat.target = combatPickTarget();
     }
   }
@@ -2958,11 +3428,15 @@
     if (combat.phase === 'result') return;
     combat.phase = 'result';
     combat.result = win ? 'win' : 'lose';
-    combatLog(win ? '推演完成 · 全部敌对信号清除' : '推演失败 · 舰队失去战斗力');
+    combatLog(win ? '推演完成 · 任务 ' + pad2(combat.mission) + ' 达成' : '推演失败 · 舰队失去战斗力');
+    campaignRecord(win);
     showToast(win ? '推演完成' : '推演失败', win ? 'MISSION COMPLETE' : 'MISSION FAILED', false);
     initAudio();
     beep(win ? 880 : 180, 0.35, 0.09);
+    combatSfx(win ? 'win' : 'lose');
     combatRefreshUI();
+    combatHook();
+    campaignHook();
   }
   function combatEnsureUI() {
     var L = document.getElementById('combat-layer');
@@ -2989,6 +3463,16 @@
         Math.max(0, Math.round(combat.target.hp)) + '/' + combat.target.maxHp
       : '按 Tab 选择目标');
     set('c-standoff', (combat.standoff / 10).toFixed(1) + ' 千 km');
+    var cfg = combat.missionCfg || CAMPAIGN_MISSIONS[0];
+    set('c-mission-eyebrow', 'MISSION ' + pad2(cfg.id) + ' · ' + cfg.en);
+    set('c-mission-title', cfg.name);
+    set('c-goal', cfg.goal);
+    set('c-progress', pad2(cfg.id) + '/04 · ' +
+        (combat.progress ? combat.progress.cleared.length : 0) + '✓');
+    set('c-objective', campaignObjective());
+    var bn = campaignBonus();
+    set('c-formation', FORMATIONS[state.formation].name);
+    set('c-formation-note', 'F 切换 · ' + bn.tag);
     set('c-hull', Math.round(combat.hull) + '%');
     set('c-shield', Math.round(combat.shield) + '%');
     var shBar = document.getElementById('c-shieldbar');
@@ -3035,10 +3519,24 @@
           ' · 舰队 ' + (combatAliveWings() + 1) + '/12 · 用时 ' + Math.round(combat.time) + ' s');
       } else R.classList.add('hidden');
     }
+    var nb = document.getElementById('c-btn-next');
+    if (nb) nb.style.display = (combat.phase === 'result' && combat.result === 'win' &&
+      combat.mission < CAMPAIGN_MISSIONS.length) ? '' : 'none';
+    set('c-result-hint', combat.result === 'win'
+      ? (combat.mission < CAMPAIGN_MISSIONS.length
+          ? 'Enter 进入下一关 · 或点「任务列表」'
+          : '四段推演全部完成 · Enter 再来一次')
+      : 'Enter 重试本关 · Esc 返回自由航行');
+    campaignIndicators();
   }
   function combatStart(m) {
     if (combat.active) combatExit();
-    combat.active = true; combat.phase = 'fight'; combat.mission = m || 1;
+    var mid = clamp(parseInt(m, 10) || 1, 1, CAMPAIGN_MISSIONS.length);
+    var cfg = CAMPAIGN_MISSIONS[mid - 1];
+    if (!combat.progress) combat.progress = campaignLoad();
+    combat.active = true; combat.phase = 'fight'; combat.mission = mid;
+    combat.missionCfg = cfg;
+    combat.storyUntil = 0; combat.warpReady = false; combat.warpDone = false;
     combat.time = 0; combat.wave = 0; combat.waveAt = 0; combat.kills = 0; combat.losses = 0;
     combat.hull = 100; combat.shield = 100; combat.salvoCd = 0; combat.wingCd = 1.6;
     combat.order = 'focus'; combat.target = null; combat.result = null;
@@ -3079,13 +3577,20 @@
     state.targetC = 0.05; state.speedC = 0.05; state.warp = 0;
     state.mouseNX = 0; state.mouseNY = 0;
     combat.standoff = 165; combat.relC = 0; combat.gearSeen = 2;
-    combatLog('任务 01 · ' + COMBAT_MISSION.name + ' · 战术推演启动');
-    combatLog('Tab 切目标 / 空格发射 / X Z 换武器 / C 俯视 / G 集火 / B 规避');
-    showToast('战术推演 · 接敌', COMBAT_MISSION.en, false);
+    combatLog('任务 ' + pad2(mid) + ' · ' + cfg.name + ' · 战术推演启动');
+    combatLog('Tab 切目标 / 空格发射 / X Z 换武器 / C 俯视 / F 阵型 / G 集火 / B 规避');
+    showToast('战术推演 · 接敌', cfg.en, false);
     initAudio();
     beep(520, 0.16, 0.07);
+    combatSfx('wave');
+    var st = document.getElementById('c-story'); if (st) st.classList.add('hidden');
+    campaignSelectClose();
+    if (mid > 1 && cfg.brief) campaignStoryShow(cfg);
+    // 开战瞬间就把第 1 波放进战场：不依赖首次 rAF，首帧即有敌舰与锁定目标。
+    combatWaves();
     combatRefreshUI();
     combatHook();
+    campaignHook();
   }
   function combatExit() {
     if (!combat.active) return;
@@ -3100,7 +3605,10 @@
     wings.forEach(function (w) { w.combatHp = 100; w.shield = 30; w.group.visible = true; });
     document.body.classList.remove('combat-on');
     var L = document.getElementById('combat-layer'); if (L) L.classList.add('hidden');
+    var st = document.getElementById('c-story'); if (st) st.classList.add('hidden');
+    campaignSelectClose();
     combat.target = null;
+    combat.storyUntil = 0;
     showToast('返回自由航行', 'FREE FLIGHT RESTORED', false);
     combatHook();
   }
@@ -3206,10 +3714,11 @@
       combatAimTurrets();
       combatWingFire(dt);
       combat.hitFlash = Math.max(0, combat.hitFlash - dt);
-      if (combat.wave >= COMBAT_WAVES.length && combatAliveEnemies() === 0) combatFinish(true);
+      campaignTick();
+      if (campaignCheckVictory()) combatFinish(true);
       else if (combat.hull <= 0) combatFinish(false);
       else if (combatAliveWings() === 0) combatFinish(false);
-      else if (combat.time > COMBAT_MISSION.limit) combatFinish(false);
+      else if (combat.time > combat.missionCfg.limit) combatFinish(false);
     } else {
     }
     combatShots(dt);
@@ -3252,6 +3761,11 @@
     SH.hit = +combat.shieldHit.toFixed(2);
     SH.overload = combat.shieldOver;
     SH.mesh = !!combat.shieldMesh && combat.shieldMesh.visible;
+    H.missionCfg = combat.missionCfg ? combat.missionCfg.win : null;
+    H.hold = combat.missionCfg && combat.missionCfg.hold ? combat.missionCfg.hold : 0;
+    H.warpReady = combat.warpReady;
+    H.warpDone = combat.warpDone;
+    campaignHook();
   }
   window.__NS_COMBAT__ = {
     active: false, phase: 'idle', tactical: false, mission: 0, time: 0, wave: 0,
@@ -3259,7 +3773,7 @@
     target: null, enemies: 0, turrets: 0, wings: 11, result: null,
     standoff: 165, relC: 0, gear: 0,
     weapon: 0, weaponKey: 'energy', weaponCd: [0, 0, 0, 0], beams: 0,
-    shieldState: 'online',
+    shieldState: 'online', missionCfg: null, hold: 0, warpReady: false, warpDone: false,
     start: function (m) { combatStart(m || 1); },
     salvo: function () { var r = combatSalvo(); combatHook(); return r; },
     cycle: function () { combatCycleTarget(); combatHook(); },
@@ -3612,7 +4126,7 @@
   }
   if (qs.get('campaign') === '1') {
     el.start.classList.add('hidden');
-    combatStart(1);
+    combatStart(clamp(parseInt(qs.get('mission') || '1', 10) || 1, 1, CAMPAIGN_MISSIONS.length));
   }
   if (qs.has('formation')) {
     state.formation = clamp(parseInt(qs.get('formation'), 10) || 0, 0, FORMATIONS.length - 1);
