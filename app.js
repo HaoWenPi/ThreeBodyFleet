@@ -1279,7 +1279,40 @@
     }
   }
 
+  /* v1.2.1：雷达图例原本只列「旗舰 / 僚舰」，战斗中出现红点却无任何说明。
+     这里运行时补齐「敌舰 / 锁定」两项（index.html 零改动），并把僚舰图例改成菱形，
+     与画布上的青色实心菱形一致；非战斗态隐藏新增项，避免挤窄 212px 面板。 */
+  var radarLegendDone = false;
+  function radarEnsureLegend() {
+    if (radarLegendDone) return;
+    var box = document.querySelector('.radar-legend');
+    var lab = document.getElementById('radar-label');
+    if (!box || !lab) return;
+    var wing = box.querySelector('.dot.wing');
+    if (wing) wing.classList.add('wing-diamond');
+    var mk = function (cls, text) {
+      var sp = document.createElement('span');
+      sp.className = 'lg-item ' + cls;
+      sp.innerHTML = '<i class="dot ' + cls + '"></i>' + text;
+      box.insertBefore(sp, lab);
+    };
+    mk('hostile', '敌舰');
+    mk('locked', '锁定');
+    radarLegendDone = true;
+  }
+  /* v1.2.1 诊断钩子：无头验证无需 rAF 即可强制重画一帧并读取画布像素，
+     用真实颜色像素数证明「青色僚舰 / 红色敌舰」确实同时出现在雷达上。 */
+  window.__NS_RADAR__ = {
+    legend: false,
+    renderOnce: function (t) {
+      radarEnsureLegend();
+      drawRadar(t || 0);
+      window.__NS_RADAR__.legend = radarLegendDone;
+      return window.__NS_RADAR__;
+    }
+  };
   function drawRadar(t) {
+    radarEnsureLegend();
     var x = radarCtx, cx = 90, cy = 90, R = 82;
     x.clearRect(0, 0, 180, 180);
     x.strokeStyle = 'rgba(142,242,255,.16)'; x.lineWidth = 1;
@@ -1293,15 +1326,20 @@
     grad.addColorStop(0, 'rgba(120,235,255,.22)'); grad.addColorStop(1, 'rgba(120,235,255,0)');
     x.fillStyle = grad;
     x.beginPath(); x.moveTo(cx, cy); x.arc(cx, cy, R, a - 0.5, a); x.closePath(); x.fill();
-    // 僚舰取真实世界位置（含滞后与扰动）投影回旗舰局部坐标
+    // v1.2.1：僚舰统一画青色实心菱形，与敌舰的红色实心圆在「形状 + 颜色」双维度区分。
+    // 第三关逃亡舰虽与僚舰外形相似，雷达上仍一眼可辨（见 combatRadar）。
     qInv.copy(ship.quaternion).invert();
     wings.forEach(function (w) {
       tmpV2.copy(w.pos).sub(ship.position).applyQuaternion(qInv);
       var px = cx + clamp(tmpV2.x * 0.34, -R + 5, R - 5);
       var py = cy + clamp(tmpV2.z * 0.34, -R + 5, R - 5);
-      var rr = 1.8 + clamp(tmpV2.y / 60, -1, 1) * 0.7;
-      x.fillStyle = 'rgba(120,205,235,.85)';
-      x.beginPath(); x.arc(px, py, rr, 0, PI2); x.fill();
+      var rr = 2.9 + clamp(tmpV2.y / 60, -1, 1) * 0.7;
+      x.fillStyle = '#7ce6ff';
+      x.strokeStyle = 'rgba(4,20,34,.85)'; x.lineWidth = 0.8;
+      x.beginPath();
+      x.moveTo(px, py - rr); x.lineTo(px + rr, py);
+      x.lineTo(px, py + rr); x.lineTo(px - rr, py);
+      x.closePath(); x.fill(); x.stroke();
     });
     x.fillStyle = '#bff6ff'; x.shadowColor = '#8ef2ff'; x.shadowBlur = 10;
     x.beginPath(); x.moveTo(cx, cy - 6); x.lineTo(cx + 5, cy + 5);
@@ -1738,7 +1776,7 @@
   }, true);
 
   /* 程序版本：与 changelog.md / git tag vX.Y.Z 保持一致，每次发版必须同步更新。 */
-  var APP_VERSION = '1.2.0';
+  var APP_VERSION = '1.2.1';
   window.__NS_VERSION__ = APP_VERSION;
 
   window.__NS_VIEW__ = {
@@ -1796,6 +1834,7 @@
     else if (a === 'retry') { combatStart(combat.mission); return; }
     else if (a === 'select') { campaignSelectOpen(); campaignHook(); return; }
     else if (a === 'skipstory') { campaignStorySkip(); return; }
+    else if (a === 'rules') { combat.rulesOpen = !combat.rulesOpen; combatRefreshUI(); campaignHook(); return; }
     else if (a === 'target') combatCycleTarget();
     else if (a === 'salvo') combatSalvo();
     else if (a === 'tactical') combatToggleTactical();
@@ -2366,6 +2405,10 @@
     weapon: 0, weaponCd: [0, 0, 0, 0], beams: [],
     shieldMax: 100, shieldIdle: 0, shieldLock: 0, shieldHit: 0,
     shieldOver: false, shieldState: 'online', shieldMesh: null, shieldMat: null,
+    shieldReveal: 0, shieldDir: new THREE.Vector3(0, 0, 1),
+    shieldHalfAx: null, shieldCover: null,
+    // v1.2.1：规则条展开态 / 护送关僚舰不足提示去重
+    rulesOpen: false, escortWarned: false,
     // v1.2.0 战役：关卡配置 / 剧情字幕 / 存档 / 撤离状态
     missionCfg: null, progress: null, storyUntil: 0,
     warpReady: false, warpDone: false, indicators: 0
@@ -2440,7 +2483,12 @@
         '舰队战术推演系统 · 任务 01',
         '智子锁死了基础物理实验结果，舰队必须学会在「被观测」的战场上作战。',
         '目标：清除全部模拟敌对信号，验证自然选择号的指挥链路。'
-      ]
+      ],
+      rules: {
+        win: '清除全部 4 波敌对信号，最后一波清完即胜',
+        lose: '舰体归零 / 僚舰全灭 / 超过 150 秒',
+        tips: ['Tab 切目标、空格发射，X 与 Z 换武器', 'C 战术俯视可看清全场；G 集火、B 规避']
+      }
     },
     {
       id: 2, name: '末日战役 · 水滴', en: 'DOOMSDAY / THE DROPLET',
@@ -2451,7 +2499,16 @@
         '一枚强相互作用力探测器出现在阵列前方，主炮对它没有任何意义。',
         '原著里两千艘战舰在两小时内被它逐一击穿。推演的胜利条件不是击毁，',
         '而是在水滴的追猎下撑过撤离窗口，并保住至少 6 艘僚舰。'
-      ]
+      ],
+      rules: {
+        win: '撑过 72 秒撤离窗口，且至少 6 艘僚舰存活（两个条件必须同时满足）',
+        lose: '舰体归零 / 僚舰全灭 / 超过 110 秒；72 秒时僚舰不足 6 艘也会失败',
+        tips: [
+          '水滴不可击毁：锁定它等于浪费火力，优先清除智子探针与袭击舰',
+          'F 切「环形护卫」可让僚舰少吃 25% 伤害，是护送关最优阵型',
+          '降到前进一可拉开水滴追猎距离；HUD 实时显示僚舰是否达标'
+        ]
+      }
     },
     {
       id: 3, name: '猜疑链 · 黑暗战役', en: 'DARK BATTLE / SUSPICION CHAIN',
@@ -2460,9 +2517,18 @@
       brief: [
         '舰队战术推演系统 · 任务 03',
         '逃亡舰队之间无法确认对方是否先开火，猜疑链在真空里没有尽头。',
-        '雷达上的信号与己方舰影几乎同色，指挥官只能靠锁定框分辨敌我。',
+        '敌舰外形与僚舰如出一辙，但雷达上敌红我青：青色实心菱形是僚舰，红色标记是敌舰。',
         '这是一场不追求歼灭的推演：活到计时结束，就算看穿了这条链。'
-      ]
+      ],
+      rules: {
+        win: '无需歼灭 —— 生存到 68 秒计时结束即胜',
+        lose: '舰体归零 / 僚舰全灭 / 超过 100 秒',
+        tips: [
+          '雷达图例：青色实心菱形 = 僚舰，红色实心圆 = 敌舰，红色空心菱形 = 逃亡舰，黄环 = 当前锁定',
+          '击毁敌舰只是减压手段，不计入胜利；B 规避与 F 松散巡航能降低受压',
+          '逃亡舰只是外形像我方，颜色始终标红，看图例即可分辨，不会误判'
+        ]
+      }
     },
     {
       id: 4, name: '引力波广播 · 守卫', en: 'GRAVITATIONAL WAVE / GUARD',
@@ -2473,7 +2539,12 @@
         '广播阵列充能期间，自然选择号必须钉在这片空间里。',
         '撑过 62 秒，阵列完成发射；随后按 4 让全舰队前进四跃迁脱离。',
         '推演到此结束。真实历史没有被改写，我们只是把指挥刀演练了一遍。'
-      ]
+      ],
+      rules: {
+        win: '守卫 62 秒至广播完成，随后按 4 前进四跃迁撤离（18 秒后系统自动脱离兜底）',
+        lose: '舰体归零 / 僚舰全灭 / 超过 110 秒',
+        tips: ['倒计时未结束时按 4 仍是「跃迁锁定」，不会判胜', '光粒探针数量多但血量薄，激光与鱼雷效率最高']
+      }
     }
   ];
   /* 阵型战术加成：0 号「楔形前锋」是基准（全 1.0），保证默认手感与 v1.1.3 一致。
@@ -2591,19 +2662,31 @@
       combat.warpDone = true;
       combatLog('自动跃迁程序接管 · 舰队脱离');
     }
+    /* v1.2.1：护送关原本在僚舰不足 6 艘后仍会一路干等到 110 秒超时才判负，
+       玩家完全不知道为何没赢。这里在撤离窗口到点且已不达标时给出一次性明确提示。 */
+    if (cfg && cfg.win === 'escort' && !combat.escortWarned &&
+        combat.time >= cfg.hold && combatAliveWings() < cfg.keepWings) {
+      combat.escortWarned = true;
+      combatLog('撤离窗口已到 · 僚舰仅 ' + combatAliveWings() + '/' + cfg.keepWings +
+                ' 艘 · 本局已无法达标，Esc 可重来');
+      showToast('僚舰不足 · 撤离失败', 'ESCORT OBJECTIVE FAILED', false);
+    }
   }
   function campaignObjective() {
     var cfg = combat.missionCfg;
     if (!cfg) return '';
     if (cfg.win === 'eliminate')
       return '信号 ' + combatAliveEnemies() + ' · 波 ' + combat.wave + '/' + cfg.waves.length;
-    if (cfg.win === 'escort')
+    if (cfg.win === 'escort') {
+      var n = combatAliveWings(), okW = n >= cfg.keepWings;
       return '撤离 ' + Math.max(0, Math.ceil(cfg.hold - combat.time)) + 's · 僚舰 ' +
-             combatAliveWings() + '/' + cfg.keepWings;
+             n + '/' + cfg.keepWings +
+             (okW ? ' ✓ 达标' : ' ✗ 不足 · 已无法达成撤离条件');
+    }
     if (cfg.win === 'survive')
       return '生存 ' + Math.max(0, Math.ceil(cfg.hold - combat.time)) + 's · 舰体 ' +
-             Math.round(combat.hull) + '%';
-    return combat.warpReady ? '按 4 跃迁撤离' :
+             Math.round(combat.hull) + '% · 无需歼灭';
+    return combat.warpReady ? '按 4 跃迁撤离 ✓' :
       '守卫 ' + Math.max(0, Math.ceil(cfg.hold - combat.time)) + 's';
   }
   function campaignStoryShow(cfg) {
@@ -2620,6 +2703,14 @@
     if (eb) eb.textContent = 'TACTICAL SIMULATION / MISSION ' + pad2(cfg.id);
     if (ti) ti.textContent = cfg.name;
     if (ln) ln.innerHTML = cfg.brief.map(function (s) { return '<div>' + s + '</div>'; }).join('');
+    var ru = document.getElementById('c-story-rules');
+    if (ru && cfg.rules) {
+      ru.innerHTML =
+        '<div class="sr-row sr-win"><b>胜利</b><span>' + cfg.rules.win + '</span></div>' +
+        '<div class="sr-row sr-lose"><b>失败</b><span>' + cfg.rules.lose + '</span></div>' +
+        '<div class="st-tips">' + cfg.rules.tips.map(function (s) {
+          return '<div>· ' + s + '</div>'; }).join('') + '</div>';
+    }
     box.classList.remove('hidden');
     combat.storyUntil = combat.time + 6.0;
   }
@@ -2650,6 +2741,7 @@
         '<span class="cs-no">' + pad2(m.id) + '</span>' +
         '<span class="cs-name">' + m.name + '</span>' +
         '<span class="cs-goal">' + m.goal + '</span>' +
+        '<span class="cs-rules">胜：' + (m.rules ? m.rules.win : m.goal) + '</span>' +
         '<span class="cs-state">' + (cl ? '✓ 已通关' + (b ? ' · ' + b.time + ' s' : '') :
           un ? '可进入 →' : '未解锁 · 需先通过任务 ' + pad2(m.id - 1)) + '</span></button>');
     });
@@ -2733,7 +2825,8 @@
     }),
     mission: 0, unlocked: 1, cleared: [], storage: false, story: false,
     bonus: '基准 · 均衡', formation: 0, warpReady: false, warpDone: false,
-    objective: '', phase: 'idle', selectsOpen: false, indicators: 0, missionCfg: null, missionCfg: null,
+    objective: '', phase: 'idle', selectsOpen: false, indicators: 0, missionCfg: null,
+    rules: null, rulesOpen: false, radarLegend: false,
     start: function (n) { combatStart(n); campaignHook(); return window.__NS_CAMPAIGN__; },
     selectOpen: function () { campaignSelectOpen(); campaignHook(); return window.__NS_CAMPAIGN__; },
     selectClose: function () { campaignSelectClose(); campaignHook(); return window.__NS_CAMPAIGN__; },
@@ -2763,6 +2856,9 @@
     H.objective = combat.missionCfg ? campaignObjective() : '';
     H.phase = combat.phase;
     H.indicators = combat.indicators;
+    H.rules = combat.missionCfg ? combat.missionCfg.rules : null;
+    H.rulesOpen = combat.rulesOpen;
+    H.radarLegend = radarLegendDone;
     var box = document.getElementById('campaign-select');
     H.selectsOpen = !!box && !box.classList.contains('hidden');
   }
@@ -2787,6 +2883,8 @@
     '  <div class="c-row"><span>接战距离</span><b id="c-standoff">16.5 千 km</b></div>',
     '  <div class="c-row"><span>任务进度</span><b id="c-progress">01 / 04</b></div>',
     '  <div class="c-sub" id="c-objective">清除全部敌对信号</div>',
+    '  <div class="c-rules" id="c-rules"></div>',
+    '  <button type="button" class="c-rules-btn" data-act="rules" id="c-rules-btn">▾ 展开打法提示</button>',
     '</div>',
     '<div id="c-target" class="c-card">',
     '  <div class="c-eyebrow">TARGET LOCK / 锁定目标</div>',
@@ -2842,6 +2940,7 @@
     '  <div class="st-eyebrow" id="c-story-eyebrow"></div>',
     '  <div class="st-title" id="c-story-title"></div>',
     '  <div class="st-lines" id="c-story-lines"></div>',
+    '  <div class="st-rules" id="c-story-rules"></div>',
     '  <button type="button" data-act="skipstory">跳过字幕 →</button>',
     '</div>',
     '<div id="c-offscreen"></div>',
@@ -2869,13 +2968,39 @@
   var cMatIon = new THREE.MeshBasicMaterial({ color: 0xc09cff });
   var cBeamGeo = new THREE.CylinderGeometry(1, 1, 1, 6, 1, true);
   var cBeamUp = new THREE.Vector3(0, 1, 0);
-  var cShieldGeo = new THREE.SphereGeometry(1, 36, 26);
+  /* v1.2.1 护盾几何：单位超椭球（p=8）。缩放后的半轴只需 AABB 半尺寸的 1.18 倍，
+     8 个角点即满足 sum(|x/a|^8) = 3/1.18^8 < 1，整艘舰被完整罩住；
+     原来的球壳椭球是 q=1.637 > 1，八个角全露在外面（只看见舰体中部一圈光）。
+     顶点 / 解析法线均程序化生成，半轴坐标禁止硬编码。 */
+  var SHIELD_P = 8;
+  var cShieldGeo = (function () {
+    var g = new THREE.SphereGeometry(1, 56, 36);
+    var p = g.attributes.position, n = g.attributes.normal;
+    for (var i = 0; i < p.count; i++) {
+      var x = p.getX(i), y = p.getY(i), z = p.getZ(i);
+      var k = Math.pow(Math.pow(Math.abs(x), SHIELD_P) +
+                       Math.pow(Math.abs(y), SHIELD_P) +
+                       Math.pow(Math.abs(z), SHIELD_P), 1 / SHIELD_P);
+      p.setXYZ(i, x / k, y / k, z / k);
+      var gx = Math.sign(x) * Math.pow(Math.abs(x), SHIELD_P - 1);
+      var gy = Math.sign(y) * Math.pow(Math.abs(y), SHIELD_P - 1);
+      var gz = Math.sign(z) * Math.pow(Math.abs(z), SHIELD_P - 1);
+      var L = Math.sqrt(gx * gx + gy * gy + gz * gz) || 1;
+      n.setXYZ(i, gx / L, gy / L, gz / L);
+    }
+    p.needsUpdate = true; n.needsUpdate = true;
+    g.computeBoundingSphere();
+    return g;
+  })();
+  var cShieldHit = new THREE.Vector3();
   /* 能量护盾：fresnel 边缘辉光 + 程序化六边网格 + 命中涟漪 / 过载红闪。
      挂在 turretRoot 下跟随舰体，不进 combatHullBox()（它只遍历 ship）。 */
   var cShieldMat = new THREE.ShaderMaterial({
     uniforms: {
       uTime: { value: 0 }, uPower: { value: 1 }, uHit: { value: 0 },
-      uOver: { value: 0 }, uColor: { value: new THREE.Color(0x4fd8ff) }
+      uOver: { value: 0 }, uReveal: { value: 0 },
+      uHitDir: { value: new THREE.Vector3(0, 0, 1) },
+      uColor: { value: new THREE.Color(0x4fd8ff) }
     },
     vertexShader: [
       'varying vec3 vN; varying vec3 vV; varying vec3 vP;',
@@ -2887,6 +3012,7 @@
     ].join('\n'),
     fragmentShader: [
       'uniform float uTime; uniform float uPower; uniform float uHit; uniform float uOver;',
+      'uniform float uReveal; uniform vec3 uHitDir;',
       'uniform vec3 uColor; varying vec3 vN; varying vec3 vV; varying vec3 vP;',
       'void main(){',
       '  vec3 V = normalize(-vV);',
@@ -2894,15 +3020,27 @@
       '  vec3 p = normalize(vP);',
       '  float g = sin(p.x*16.0+uTime*0.7)*sin(p.y*16.0-uTime*0.5)*sin(p.z*16.0+uTime*0.6);',
       '  float grid = smoothstep(0.88, 1.0, abs(g));',
+      '  float hd = max(dot(p, normalize(uHitDir)), 0.0);',
+      '  float spot = pow(hd, 4.0);',
       '  float ripple = uHit * (0.5 + 0.5*sin(p.y*26.0 - uTime*11.0));',
-      '  float a = (0.055 + f*0.68 + grid*0.15 + ripple*0.30) * (0.25 + 0.75*uPower)',
-      '            + uOver*0.06*(0.5 + 0.5*sin(uTime*14.0));',
+      '  float rev = clamp(uReveal, 0.0, 1.0);',
+      // GLSL pow(x,2.0) 在 x<0 时未定义，必须用乘积，否则整片 alpha 可能变 NaN。
+      '  float rq = (1.0 - rev)*3.0 - (1.0 - hd)*5.0;',
+      '  float ring = exp(-rq*rq*2.0);',
+      '  float body = 0.20 + f*0.60 + grid*0.34;',
+      /* 平时 rev=0 → alpha=0（不可见）；受击时命中方向一片明显亮起 + 扩散涟漪，
+         其余区域保留 16% 的淡轮廓，让「护盾包住整舰」的形状可辨。 */
+      '  float a = (body*(0.16 + 0.84*spot) + ripple*0.45*spot + ring*0.45*spot)',
+      '            * (0.25 + 0.75*uPower) * rev',
+      '            + uOver*0.06*(0.5 + 0.5*sin(uTime*14.0))*rev;',
       '  vec3 col = mix(uColor, vec3(1.0,0.32,0.30), clamp(uHit*0.55 + uOver*0.5, 0.0, 1.0));',
-      '  gl_FragColor = vec4(col, clamp(a, 0.0, 0.90));',
+      '  gl_FragColor = vec4(col, clamp(a, 0.0, 0.82));',
       '}'
     ].join('\n'),
     transparent: true, blending: THREE.AdditiveBlending,
-    depthWrite: false, side: THREE.DoubleSide
+    /* 不做深度测试且双面渲染：来袭方向可能在镜头背面（敌舰在舰首 -Z、相机在舰尾 +Z），
+       只画朝相机的前壳会让「受击侧」完全看不见；双面叠加也更像能量场。 */
+    depthWrite: false, depthTest: false, side: THREE.DoubleSide
   });
   var combatUIAccum = 0;
 
@@ -2963,11 +3101,28 @@
     /* 护盾穹顶尺寸取自同一份运行时舰体包围盒，模型换了自动跟着走，禁硬编码。 */
     var dome = new THREE.Mesh(cShieldGeo, cShieldMat);
     dome.name = 'flagship-energy-shield';
-    dome.scale.set(w * 0.62, h * 1.15, d * 0.56);
+    /* p=8 时罩住 AABB 八角所需 K >= 3^(1/8)=1.147，取 1.18 留余量。 */
+    var K = 1.18;
+    var halfAx = [w * 0.5 * K, h * 0.5 * K, d * 0.5 * K];
+    dome.scale.set(halfAx[0], halfAx[1], halfAx[2]);
     dome.position.set(c.x, c.y, c.z);
+    /* 用真实包围盒 8 角复算超椭球方程，覆盖率进诊断钩子，避免「看着包住了」的假绿。 */
+    var xs = [box.min.x - c.x, box.max.x - c.x];
+    var ys = [box.min.y - c.y, box.max.y - c.y];
+    var zs = [box.min.z - c.z, box.max.z - c.z];
+    var qMax = 0, qIn = 0;
+    for (var qx = 0; qx < 2; qx++) for (var qy = 0; qy < 2; qy++) for (var qz = 0; qz < 2; qz++) {
+      var qv = Math.pow(Math.abs(xs[qx] / halfAx[0]), SHIELD_P) +
+               Math.pow(Math.abs(ys[qy] / halfAx[1]), SHIELD_P) +
+               Math.pow(Math.abs(zs[qz] / halfAx[2]), SHIELD_P);
+      if (qv > qMax) qMax = qv;
+      if (qv <= 1) qIn++;
+    }
     combat.turretRoot.add(dome);
     combat.shieldMesh = dome;
     combat.shieldMat = cShieldMat;
+    combat.shieldHalfAx = halfAx;
+    combat.shieldCover = { inside: qIn, total: 8, qMax: +qMax.toFixed(4) };
   }
   function combatInitPools() {
     for (var i = 0; i < 72; i++) {
@@ -3128,13 +3283,20 @@
     return true;
   }
   /* 旗舰能量护盾：吸收 → 脱战 3s 回充 → 归零 4s 过载锁定。 */
-  function combatShieldAbsorb(dmg) {
+  function combatShieldAbsorb(dmg, hitMesh) {
     var absorbed = Math.min(combat.shield, dmg);
     combat.shield -= absorbed;
     var leak = (dmg - absorbed) * 0.8;
     if (leak > 0) combat.hull = Math.max(0, combat.hull - leak);
     combat.shieldIdle = 0;
     combat.shieldHit = 1;
+    combat.shieldReveal = 1;
+    if (hitMesh && combat.shieldMesh) {
+      hitMesh.getWorldPosition(cShieldHit);
+      combat.shieldMesh.updateWorldMatrix(true, false);
+      combat.shieldMesh.worldToLocal(cShieldHit);
+      if (cShieldHit.lengthSq() > 1e-8) combat.shieldDir.copy(cShieldHit).normalize();
+    }
     combat.hitFlash = 0.6;
     if (combat.shield <= 0 && !combat.shieldOver) {
       combat.shieldOver = true;
@@ -3148,6 +3310,7 @@
   function combatShield(dt) {
     combat.shieldIdle += dt;
     combat.shieldHit = Math.max(0, combat.shieldHit - dt * 2.0);
+    combat.shieldReveal = Math.max(0, combat.shieldReveal - dt * 1.35);
     if (combat.shieldLock > 0) {
       combat.shieldLock = Math.max(0, combat.shieldLock - dt);
       combat.shieldState = 'overload';
@@ -3239,7 +3402,7 @@
       combatSfx('explode');
     }
   }
-  function combatDamageFleet(dmg) {
+  function combatDamageFleet(dmg, hitMesh) {
     dmg *= campaignBonus().soak;
     if (combat.order === 'evade' && Math.random() < 0.40 + campaignBonus().evade) {
       combatLog('规避成功 · 敌弹未命中');
@@ -3259,7 +3422,7 @@
       else combatLog(soak > 0 ? '僚舰护盾 −' + Math.round(soak)
                               : '僚舰受击 · 完整度 ' + Math.round(w.combatHp) + '%');
     } else {
-      combatShieldAbsorb(dmg);
+      combatShieldAbsorb(dmg, hitMesh);
     }
     combat.hitFlash = 0.6;
     if (combat.hull <= 0) combatFinish(false);
@@ -3386,7 +3549,7 @@
         cTmpA.multiplyScalar(1 / d).multiplyScalar(s.vel.length());
         s.vel.lerp(cTmpA, Math.min(1, dt * (s.kind === 'torpedo' ? 1.5 : 2.2)));
       } else if (s.side === 'enemy' && s.mesh.position.lengthSq() < 900) {
-        combatDamageFleet(s.dmg);
+        combatDamageFleet(s.dmg, s.mesh);
         combatBurst(s.mesh.position, 0xff8b6b, 2.0);
         s.active = false; s.mesh.visible = false;
         continue;
@@ -3458,7 +3621,8 @@
     set('c-tname', combat.target && combat.target.alive
       ? combat.target.name + ' #' + combat.target.id : '未锁定');
     set('c-tdist', combat.target && combat.target.alive
-      ? '距离 ' + (combat.target.pos.length() / 10).toFixed(1) + ' 千 km · 相对 ' +
+      ? (combat.target.invulnerable ? '⚠ 不可击毁 · 请勿浪费火力 · ' : '') +
+        '距离 ' + (combat.target.pos.length() / 10).toFixed(1) + ' 千 km · 相对 ' +
         (combat.relC >= 0 ? '+' : '') + combat.relC.toFixed(3) + ' c · HP ' +
         Math.max(0, Math.round(combat.target.hp)) + '/' + combat.target.maxHp
       : '按 Tab 选择目标');
@@ -3470,6 +3634,18 @@
     set('c-progress', pad2(cfg.id) + '/04 · ' +
         (combat.progress ? combat.progress.cleared.length : 0) + '✓');
     set('c-objective', campaignObjective());
+    /* v1.2.1：胜利 / 失败条件常驻 HUD，字幕消失后仍可随时查；打法提示默认折叠。 */
+    var ru = document.getElementById('c-rules');
+    if (ru && cfg.rules) {
+      ru.innerHTML =
+        '<div class="cr-row cr-win"><b>胜利</b><span>' + cfg.rules.win + '</span></div>' +
+        '<div class="cr-row cr-lose"><b>失败</b><span>' + cfg.rules.lose + '</span></div>' +
+        '<div class="cr-tips' + (combat.rulesOpen ? '' : ' hidden') + '">' +
+        cfg.rules.tips.map(function (s) { return '<div>· ' + s + '</div>'; }).join('') + '</div>';
+    }
+    var rb = document.getElementById('c-rules-btn');
+    if (rb) rb.textContent = combat.rulesOpen ? '▴ 收起打法提示'
+      : '▾ 展开打法提示（' + (cfg.rules ? cfg.rules.tips.length : 0) + ' 条）';
     var bn = campaignBonus();
     set('c-formation', FORMATIONS[state.formation].name);
     set('c-formation-note', 'F 切换 · ' + bn.tag);
@@ -3537,6 +3713,7 @@
     combat.active = true; combat.phase = 'fight'; combat.mission = mid;
     combat.missionCfg = cfg;
     combat.storyUntil = 0; combat.warpReady = false; combat.warpDone = false;
+    combat.rulesOpen = false; combat.escortWarned = false;
     combat.time = 0; combat.wave = 0; combat.waveAt = 0; combat.kills = 0; combat.losses = 0;
     combat.hull = 100; combat.shield = 100; combat.salvoCd = 0; combat.wingCd = 1.6;
     combat.order = 'focus'; combat.target = null; combat.result = null;
@@ -3545,6 +3722,7 @@
     combat.weapon = 0; combat.weaponCd = [0, 0, 0, 0]; combat.salvoCd = 0;
     combat.shield = combat.shieldMax; combat.shieldIdle = 0; combat.shieldLock = 0;
     combat.shieldHit = 0; combat.shieldOver = false; combat.shieldState = 'online';
+    combat.shieldReveal = 0; combat.shieldDir.set(0, 0, 1);
     ATTITUDE.yaw = ATTITUDE.pitch = ATTITUDE.roll = 0;
     ATTITUDE.cmdYaw = ATTITUDE.cmdPitch = ATTITUDE.cmdRoll = 0;
     for (var i = 0; i < combat.enemies.length; i++) combat.root && combat.root.remove(combat.enemies[i].mesh);
@@ -3656,11 +3834,26 @@
       var px = cx + clamp(e.pos.x * 0.22, -R + 4, R - 4);
       var py = cy + clamp(e.pos.z * 0.22, -R + 4, R - 4);
       var locked = e === combat.target;
-      x.fillStyle = locked ? '#ffe08a' : '#ff6b7d';
-      x.beginPath(); x.arc(px, py, locked ? 3.4 : 2.4, 0, PI2); x.fill();
+      var col = locked ? '#ffe08a' : '#ff5d70';
+      /* v1.2.1：第三关「逃亡舰」外形刻意做成己方舰影的镜像，雷达上改用红色空心菱形，
+         既保留猜疑链氛围，又与青色实心菱形僚舰在颜色 / 填充上明确分属敌我。
+         其余敌舰统一红色实心圆，锁定目标额外套黄环；点选坐标换算完全不变。 */
+      if (e.kind === 'mirror') {
+        var mr = locked ? 4.4 : 3.8;
+        x.beginPath();
+        x.moveTo(px, py - mr); x.lineTo(px + mr, py);
+        x.lineTo(px, py + mr); x.lineTo(px - mr, py); x.closePath();
+        x.fillStyle = locked ? 'rgba(255,224,138,.32)' : 'rgba(255,93,112,.20)';
+        x.fill();
+        x.strokeStyle = col; x.lineWidth = locked ? 1.6 : 1.2; x.stroke();
+      } else {
+        x.fillStyle = col;
+        x.beginPath(); x.arc(px, py, locked ? 3.6 : 3.0, 0, PI2); x.fill();
+        x.strokeStyle = 'rgba(4,20,34,.8)'; x.lineWidth = 0.8; x.stroke();
+      }
       if (locked) {
-        x.strokeStyle = '#ffe08a'; x.lineWidth = 1;
-        x.beginPath(); x.arc(px, py, 6.5, 0, PI2); x.stroke();
+        x.strokeStyle = '#ffe08a'; x.lineWidth = 1.2;
+        x.beginPath(); x.arc(px, py, 7.2, 0, PI2); x.stroke();
       }
     }
   }
@@ -3730,6 +3923,8 @@
       su.uPower.value = clamp(combat.shield / combat.shieldMax, 0, 1);
       su.uHit.value = combat.shieldHit;
       su.uOver.value = combat.shieldOver ? 1 : 0;
+      su.uReveal.value = combat.shieldReveal;
+      su.uHitDir.value.copy(combat.shieldDir);
     }
     combatUIAccum += dt;
     if (combatUIAccum > 0.1) { combatUIAccum = 0; combatRefreshUI(); }
@@ -3761,6 +3956,11 @@
     SH.hit = +combat.shieldHit.toFixed(2);
     SH.overload = combat.shieldOver;
     SH.mesh = !!combat.shieldMesh && combat.shieldMesh.visible;
+    SH.reveal = +combat.shieldReveal.toFixed(3);
+    SH.dir = [+combat.shieldDir.x.toFixed(3), +combat.shieldDir.y.toFixed(3),
+              +combat.shieldDir.z.toFixed(3)];
+    SH.halfAx = combat.shieldHalfAx ? combat.shieldHalfAx.map(function (v) { return +v.toFixed(2); }) : [];
+    SH.cover = combat.shieldCover;
     H.missionCfg = combat.missionCfg ? combat.missionCfg.win : null;
     H.hold = combat.missionCfg && combat.missionCfg.hold ? combat.missionCfg.hold : 0;
     H.warpReady = combat.warpReady;
@@ -3789,7 +3989,8 @@
     }
   };
   window.__NS_SHIELD__ = { power: 1, state: 'online', idle: 0, lock: 0,
-                           hit: 0, overload: false, mesh: false, regen: 5.5 };
+                           hit: 0, overload: false, mesh: false, regen: 5.5,
+                           reveal: 0, dir: [0, 0, 1], halfAx: [], cover: null };
   window.__NS_TURRETS__ = { count: 0, source: 'pending', box: [] };
 
   /* ================= 主更新 ================= */

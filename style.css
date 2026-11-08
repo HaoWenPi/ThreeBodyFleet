@@ -561,3 +561,47 @@ body.combat-on .nav-data,body.combat-on .drive-panel,body.combat-on .gearbar,bod
   body.combat-on #view-chip{display:none !important}
   #combat-layer #c-objective,#combat-layer #c-progress,#combat-layer #c-formation-note{font-size:9px}
 }
+
+
+/* ---------- v1.2.1 雷达敌我图例 / 四关规则说明（全部由 app.js 运行时创建 DOM） ---------- */
+.radar-legend{flex-wrap:wrap;row-gap:3px}
+.radar-legend .dot.wing-diamond{border-radius:1px;background:#7ce6ff;transform:rotate(45deg);box-shadow:0 0 6px rgba(124,230,255,.65)}
+.radar-legend .lg-item{display:inline-flex;align-items:center;gap:4px;margin-left:8px}
+.radar-legend .dot.hostile{background:#ff5d70;box-shadow:0 0 6px rgba(255,93,112,.7)}
+.radar-legend .dot.locked{width:7px;height:7px;border:1.5px solid #ffe08a;background:transparent}
+body:not(.combat-on) .radar-legend .lg-item{display:none}
+
+#combat-layer .c-rules{margin-top:7px;border-top:1px solid rgba(142,242,255,.16);padding-top:6px;font:10px/1.55 var(--mono);color:#bfe2f0}
+#combat-layer .cr-row{display:flex;gap:6px;align-items:flex-start;margin-bottom:3px}
+#combat-layer .cr-row b{flex:0 0 auto;font-weight:600;padding:0 4px;border-radius:3px;font-size:9px;line-height:1.6}
+#combat-layer .cr-win b{color:#0b2b1c;background:#7ce6a8}
+#combat-layer .cr-lose b{color:#2b0b10;background:#ff8f9b}
+#combat-layer .cr-row span{flex:1;overflow-wrap:anywhere}
+#combat-layer .cr-tips{color:var(--cyan-dim);font-size:9px;line-height:1.65;margin-top:4px}
+#combat-layer .cr-tips.hidden{display:none}
+#combat-layer .c-rules-btn{margin-top:5px;padding:3px 8px;font:9px var(--mono);color:var(--cyan);background:transparent;border:1px solid var(--line);border-radius:5px;cursor:pointer}
+#combat-layer .c-rules-btn:hover{border-color:var(--cyan)}
+
+#c-story .st-rules{margin-top:14px;border-top:1px solid rgba(142,242,255,.22);padding-top:10px;font:11px/1.7 var(--mono)}
+#c-story .sr-row{display:flex;gap:8px;align-items:flex-start;margin-bottom:4px}
+#c-story .sr-row b{flex:0 0 auto;padding:1px 6px;border-radius:4px;font-size:10px}
+#c-story .sr-win b{color:#0b2b1c;background:#7ce6a8}
+#c-story .sr-lose b{color:#2b0b10;background:#ff8f9b}
+#c-story .sr-row span{color:#dff6ff;overflow-wrap:anywhere}
+#c-story .st-tips{color:var(--cyan-dim);font-size:10px;line-height:1.7;margin-top:6px}
+#c-story{max-height:88vh;overflow-y:auto}
+#campaign-select .cs-rules{display:block;font:9px/1.5 var(--mono);color:var(--cyan-dim);margin-top:4px;overflow-wrap:anywhere}
+/* 宽屏战斗态：左侧状态卡原先 top:44% 会盖住雷达上半圆，敌我标记看不到；
+   上移到 34%（恰好落在左上舰船信息卡下方），并把图例里重复的阵型标签让位，
+   使「旗舰/僚舰/敌舰/锁定」四项保持单行。窄屏布局不受影响。 */
+@media (min-width:641px){
+  body.combat-on #c-status{top:34%}
+  body.combat-on #radar-label{display:none}
+}
+@media (max-width:640px){
+  #combat-layer #c-rules{font-size:9px;line-height:1.45}
+  #combat-layer .cr-row span{font-size:9px}
+  #combat-layer .cr-tips{font-size:8px}
+  #combat-layer .c-rules-btn{font-size:9px}
+  #c-story .st-rules{margin-top:8px;padding-top:6px;font-size:10px}
+}
