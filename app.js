@@ -1081,6 +1081,20 @@
     scene.add(w.group);
     return w;
   });
+  /* v1.2.2 损毁火光：每艘僚舰挂一个独立材质的光核，受损后按完整度脉动、
+     越接近殉爆越红越亮。MAT.* 是全舰队共享材质，直接改 emissive 会一起点亮。 */
+  var WING_DMG_GEO = new THREE.SphereGeometry(1, 10, 8);
+  wings.forEach(function (w) {
+    var fx = new THREE.Mesh(WING_DMG_GEO, new THREE.MeshBasicMaterial({
+      color: 0xff6a34, transparent: true, opacity: 0,
+      blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false
+    }));
+    fx.visible = false;
+    fx.position.set(0, 0, -2);
+    w.group.add(fx);
+    w.dmgFx = fx;
+    w.dmgHit = 0;
+  });
 
   /* 编队航向：僚舰不共用旗舰的瞬时姿态。qFleet 以低速惯性跟随，旗舰改航向时
      各舰沿自己的航向继续走一段再弧线归位，而不是整队被一个旋转矩阵刚性搬走。
@@ -1776,7 +1790,7 @@
   }, true);
 
   /* 程序版本：与 changelog.md / git tag vX.Y.Z 保持一致，每次发版必须同步更新。 */
-  var APP_VERSION = '1.2.1';
+  var APP_VERSION = '1.2.2';
   window.__NS_VERSION__ = APP_VERSION;
 
   window.__NS_VIEW__ = {
@@ -2408,7 +2422,7 @@
     shieldReveal: 0, shieldDir: new THREE.Vector3(0, 0, 1),
     shieldHalfAx: null, shieldCover: null,
     // v1.2.1：规则条展开态 / 护送关僚舰不足提示去重
-    rulesOpen: false, escortWarned: false,
+    rulesOpen: false, escortWarned: false, droplet: null,
     // v1.2.0 战役：关卡配置 / 剧情字幕 / 存档 / 撤离状态
     missionCfg: null, progress: null, storyUntil: 0,
     warpReady: false, warpDone: false, indicators: 0
@@ -2467,6 +2481,17 @@
     { at: 40, list: [['probe', 3], ['lancer', 2]] },
     { at: 58, list: [['raider', 2], ['lancer', 2]] }
   ];
+  /* v1.2.2：水滴不再沿固定轨道绕圈发弹，而是「锁定 → 高速贯穿 → 回环」逐一击穿。
+     强相互作用力外壳直接穿透能量护盾，所以撞击只吃阵型减伤，不会被 30 点护盾吃光；
+     同一艘僚舰被反复命中直到殉爆才换目标。改平衡只动这一处常量。 */
+  var DROPLET_RAM = {
+    dmg: 46,            // 单次贯穿削掉的完整度（× 阵型 soak）
+    speed: 220,         // 冲刺速度，战场单位/秒
+    cd: 4.2,            // 回环后再次追猎的基准间隔（秒）
+    recover: 0.80,      // 穿透后的回环时长（秒）
+    trail: 0.050,       // 冲刺光轨间隔（秒）
+    hitU: 0.93          // 冲刺进度到此即判定贯穿，不依赖帧率
+  };
   var CAMPAIGN_SPEC = {
     probe:   COMBAT_SPEC.probe,
     raider:  COMBAT_SPEC.raider,
@@ -2498,15 +2523,15 @@
         '舰队战术推演系统 · 任务 02',
         '一枚强相互作用力探测器出现在阵列前方，主炮对它没有任何意义。',
         '原著里两千艘战舰在两小时内被它逐一击穿。推演的胜利条件不是击毁，',
-        '而是在水滴的追猎下撑过撤离窗口，并保住至少 6 艘僚舰。'
+        '它的贯穿无视能量护盾；撑过窗口并保住至少 6 艘僚舰，才算推演成功。'
       ],
       rules: {
         win: '撑过 72 秒撤离窗口，且至少 6 艘僚舰存活（两个条件必须同时满足）',
         lose: '舰体归零 / 僚舰全灭 / 超过 110 秒；72 秒时僚舰不足 6 艘也会失败',
         tips: [
           '水滴不可击毁：锁定它等于浪费火力，优先清除智子探针与袭击舰',
-          'F 切「环形护卫」可让僚舰少吃 25% 伤害，是护送关最优阵型',
-          '降到前进一可拉开水滴追猎距离；HUD 实时显示僚舰是否达标'
+          '水滴锁定同一艘僚舰反复贯穿，每次削 46% 完整度、约 3 次殉爆；F 环形护卫减伤并拖慢追猎',
+          '降到前进一可拉开水滴追猎距离；B 规避有概率擦过；HUD 实时显示僚舰是否达标'
         ]
       }
     },
@@ -3130,7 +3155,7 @@
       m.visible = false; combat.root.add(m);
       combat.shots.push({ mesh: m, active: false, vel: new THREE.Vector3(), side: 'ally', dmg: 0, target: null, life: 0 });
     }
-    for (var j = 0; j < 16; j++) {
+    for (var j = 0; j < 40; j++) {
       var b = new THREE.Mesh(cBurstGeo, cMatBurst.clone());
       b.visible = false; combat.root.add(b);
       combat.bursts.push({ mesh: b, active: false, life: 0, max: 0.45, size: 1 });
@@ -3161,11 +3186,11 @@
     s.mesh.position.copy(from);
     s.vel.copy(cTmpD).normalize().multiplyScalar(speed);
   }
-  function combatBurst(pos, color, size) {
+  function combatBurst(pos, color, size, life) {
     var b = null;
     for (var i = 0; i < combat.bursts.length; i++) if (!combat.bursts[i].active) { b = combat.bursts[i]; break; }
     if (!b) return;
-    b.active = true; b.life = 0.45; b.max = 0.45; b.size = size || 1;
+    b.active = true; b.life = life || 0.45; b.max = life || 0.45; b.size = size || 1;
     b.mesh.visible = true; b.mesh.position.copy(pos);
     b.mesh.material.color.setHex(color);
     b.mesh.material.opacity = 0.9;
@@ -3349,6 +3374,13 @@
       baseEmissive: kind === 'probe' ? 0x2ba7d8 : kind === 'droplet' ? 0x5f9fc0
                   : kind === 'mirror' ? 0x3a6fa8 : 0xa02a2a
     };
+    if (kind === 'droplet') {
+      e.ram = {
+        phase: 'lurk', target: null, t: 0, cd: DROPLET_RAM.cd * 1.4,
+        from: pos.clone(), aim: new THREE.Vector3(), through: new THREE.Vector3(),
+        hitDone: false, trailT: 0, cycles: 0, last: ''
+      };
+    }
     combat.enemies.push(e);
     return e;
   }
@@ -3418,7 +3450,10 @@
       cTmpA.copy(w.pos);
       combat.root.worldToLocal(cTmpA);
       combatBurst(cTmpA, soak > 0 ? 0x7fe7ff : 0xff8b6b, 2.2);
-      if (w.combatHp <= 0) { w.group.visible = false; combat.losses++; combatLog('僚舰失联 · 舰队 −1'); }
+      if (w.combatHp <= 0) {
+        combatWingDestroy(w, '敌弹命中', false);
+        combatLog('僚舰失联 · 舰队 −1');
+      }
       else combatLog(soak > 0 ? '僚舰护盾 −' + Math.round(soak)
                               : '僚舰受击 · 完整度 ' + Math.round(w.combatHp) + '%');
     } else {
@@ -3467,11 +3502,180 @@
     cTmpB.copy(combat.target.pos);
     combatTakeShot('ally', cTmpA, cTmpB, 240, 4, combat.target);
   }
+  /* ================= v1.2.2 水滴贯穿 / 僚舰损毁殉爆 =================
+     战场是开战锚定的局部坐标，僚舰 pos 是场景世界坐标，逐帧换算后再做接触判定。
+     专用临时向量，避免与 cTmpA~D（弹丸 / 炮塔 / 僚舰射击）互相踩踏。 */
+  var cRamA = new THREE.Vector3(), cRamB = new THREE.Vector3(), cRamD = new THREE.Vector3();
+  function combatWingLocal(w, out) {
+    out.copy(w.pos);
+    combat.root.worldToLocal(out);
+    return out;
+  }
+  function combatWingAliveList() {
+    var a = [];
+    for (var i = 0; i < wings.length; i++) if (wings[i].combatHp > 0) a.push(wings[i]);
+    return a;
+  }
+  function combatWingPickRam(prev) {
+    var a = combatWingAliveList();
+    if (!a.length) return null;
+    if (prev && prev.combatHp > 0) return prev;          // 追猎同一艘，直到打爆
+    var best = a[0];
+    for (var i = 1; i < a.length; i++) if (a[i].combatHp < best.combatHp) best = a[i];
+    return best;
+  }
+  function combatWingDestroy(w, cause, loud) {
+    if (!w || w.combatHp > 0) return false;
+    var no = pad2(wings.indexOf(w) + 1);
+    w.combatHp = 0;
+    w.group.visible = false;
+    if (w.dmgFx) w.dmgFx.visible = false;
+    combat.losses++;
+    var p = combatWingLocal(w, cRamD);
+    combatBurst(p, 0xffe9a8, 1.8, 0.55); // 白热核心
+    combatBurst(p, 0xff9a4a, 4.6, 0.75); // 橙红火球
+    combatBurst(p, 0xff4a1e, 7.0, 1.05); // 外扩冲击（停留更久才看得清殉爆）
+    combatLog('僚舰-' + no + ' 殉爆 · ' + cause + ' · 舰队 ' + combatAliveWings() + '/11');
+    combatSfx('explode');
+    beep(150, 0.28, 0.08);
+    if (loud) showToast('僚舰殉爆', 'WING DESTROYED / DROPLET RAM', false);
+    if (combat.droplet) combat.droplet.last = '殉爆 僚舰-' + no;
+    return true;
+  }
+  function combatWingRamDamage(w, dmg, cause) {
+    if (!w || w.combatHp <= 0) return;
+    // 强相互作用力直接贯穿护盾：只吃阵型减伤，不会被僚舰护盾全额吸收。
+    var real = dmg * campaignBonus().soak;
+    w.combatHp = Math.max(0, w.combatHp - real);
+    w.dmgHit = 0.9;
+    var no = pad2(wings.indexOf(w) + 1);
+    var p = combatWingLocal(w, cRamD);
+    combatBurst(p, 0xeafcff, 1.5);
+    combatBurst(p, 0xff8b52, 2.8);
+    combatSfx('hit');
+    if (combat.droplet) {
+      combat.droplet.hits++;
+      combat.droplet.last = '贯穿 僚舰-' + no + ' → ' + Math.round(w.combatHp) + '%';
+    }
+    if (w.combatHp <= 0) {
+      if (combat.droplet) combat.droplet.kills++;
+      combatWingDestroy(w, cause, true);
+      return;
+    }
+    combatLog('水滴贯穿 僚舰-' + no + ' · 完整度 ' + Math.round(w.combatHp) + '%');
+  }
+  function combatDropletRam(e, dt, t) {
+    var ram = e.ram;
+    if (!ram) return;
+    var so = combat.standoff;
+    var lurk = cRamA.set(Math.sin(t * 0.6 + e.seed) * 26,
+                         20 + Math.sin(t * 0.9) * 8, -(so + 150));
+    if (ram.phase === 'lurk') {
+      e.pos.lerp(lurk, Math.min(1, dt * 2.2));
+      ram.cd -= dt;
+      if (ram.cd <= 0) {
+        var target = combatWingPickRam(ram.target);
+        if (!target) { ram.cd = 1.2; return; }
+        ram.target = target;
+        ram.from.copy(e.pos);
+        combatWingLocal(target, ram.aim);
+        ram.t = 0; ram.hitDone = false; ram.trailT = 0; ram.cycles++;
+        ram.phase = 'charge';
+        ram.last = '锁定 僚舰-' + pad2(wings.indexOf(target) + 1);
+        combatLog('水滴锁定 僚舰-' + pad2(wings.indexOf(target) + 1) + ' · 高速贯穿');
+        combatSfx('wave');
+      }
+      return;
+    }
+    if (ram.phase === 'charge') {
+      if (ram.target && ram.target.combatHp > 0) combatWingLocal(ram.target, ram.aim);
+      var dir = cRamB.copy(ram.aim).sub(ram.from);
+      var len = dir.length();
+      if (len < 1) len = 1;
+      var dur = Math.max(0.62, len / DROPLET_RAM.speed);
+      ram.t += dt;
+      var u = Math.min(1, ram.t / dur);
+      var k = u * u * (3 - 2 * u);                 // smoothstep：起步慢、末端极快
+      e.pos.copy(ram.from).addScaledVector(dir, k);
+      ram.trailT -= dt;
+      if (ram.trailT <= 0) {
+        ram.trailT = DROPLET_RAM.trail;
+        combatBurst(e.pos, 0xcdefff, 0.55);        // 冲刺光轨
+      }
+      if (!ram.hitDone && u >= DROPLET_RAM.hitU) {
+        ram.hitDone = true;
+        var w = ram.target;
+        if (w && w.combatHp > 0) {
+          if (combat.order === 'evade' && Math.random() < 0.30 + campaignBonus().evade) {
+            combatLog('规避成功 · 水滴擦过 僚舰-' + pad2(wings.indexOf(w) + 1));
+            combatBurst(combatWingLocal(w, cRamD), 0xbfe9ff, 1.6);
+          } else {
+            combatWingRamDamage(w, DROPLET_RAM.dmg, '水滴贯穿');
+          }
+        }
+      }
+      if (u >= 1) {
+        ram.through.copy(e.pos).addScaledVector(dir.normalize(), 46);
+        ram.t = 0; ram.phase = 'recover';
+      }
+      return;
+    }
+    // recover：从穿透点飞回待机位。冷却随接战距离联动（降档拉远 → 追猎变慢），
+    // 环形护卫额外拖慢水滴重新锁定的节奏。
+    ram.t += dt;
+    var q = Math.min(1, ram.t / DROPLET_RAM.recover);
+    e.pos.copy(ram.through).lerp(lurk, q);
+    if (q >= 1) {
+      ram.phase = 'lurk';
+      ram.cd = (DROPLET_RAM.cd + Math.max(0, so - 165) * 0.018) *
+               (1 + (1 - campaignBonus().soak) * 0.8);
+      if (ram.target && ram.target.combatHp <= 0) ram.target = null;
+    }
+  }
+  function combatWingFx(dt, t) {
+    for (var i = 0; i < wings.length; i++) {
+      var w = wings[i], fx = w.dmgFx;
+      if (!fx) continue;
+      if (!combat.active || w.combatHp <= 0 || w.combatHp >= 100) {
+        fx.visible = false; w.dmgHit = 0; continue;
+      }
+      var k = 1 - w.combatHp / 100;
+      w.dmgHit = Math.max(0, w.dmgHit - dt);
+      var pulse = 0.5 + 0.5 * Math.sin(t * 9 + w.phase);
+      fx.visible = true;
+      fx.material.color.setHex(k > 0.66 ? 0xff3b22 : 0xff8a3c);
+      fx.material.opacity = Math.min(0.94,
+        0.30 + 0.45 * k + 0.12 * pulse + w.dmgHit * 0.35);
+      var s = (1.15 + 2.7 * k) * (0.92 + 0.10 * pulse) + w.dmgHit * 0.8;
+      fx.scale.set(s * 0.9, s * 0.9, s * 1.8);
+      fx.position.z = -2 - 3 * k;
+      // 破口持续冒火花：跟随僚舰当前位置，比一次性的命中爆点更像「带伤在烧」。
+      w.dmgSparkT = (w.dmgSparkT || 0) - dt;
+      if (w.dmgSparkT <= 0) {
+        w.dmgSparkT = 0.16 + 0.12 * (1 - k);
+        var sp = combatWingLocal(w, cRamD);
+        sp.x += (Math.random() - 0.5) * 4 * k;
+        sp.y += (Math.random() - 0.5) * 4 * k;
+        combatBurst(sp, k > 0.66 ? 0xff4a22 : 0xffa851, 0.8 + 1.4 * k, 0.5);
+      }
+    }
+  }
   function combatEnemies(dt, t) {
     for (var i = 0; i < combat.enemies.length; i++) {
       var e = combat.enemies[i];
       if (!e.alive) continue;
       var spec = e.spec || combat.missionCfg.spec[e.kind] || COMBAT_SPEC[e.kind];
+      if (e.kind === 'droplet') {
+        /* v1.2.2：水滴不进入常规轨道、也不发普通弹 —— 它只做贯穿撞击。
+           离子炮仍能让它的冲刺/回环减速（ion 只在这里递减，不改变不可击毁）。 */
+        if (e.ion > 0) e.ion = Math.max(0, e.ion - dt);
+        combatDropletRam(e, dt * (e.ion > 0 ? 0.45 : 1), t);
+        e.mesh.position.copy(e.pos);
+        e.mesh.rotation.y += dt * 2.6;
+        e.mesh.rotation.x += dt * 0.6;
+        e.mesh.material.emissive.setHex(e.ion > 0 ? 0x8a5cff : 0xa6dcff);
+        continue;
+      }
       var dist = e.pos.length();
       // 轨道半径随接战距离联动：换档后敌阵整体逼近 / 退开，而不是永远钉在 165。
       var so = combat.standoff;
@@ -3485,13 +3689,6 @@
         e.pos.set(Math.cos(e.orbit) * rr * 0.72,
                   Math.sin(t * 0.5 + e.seed) * 26,
                   -Math.abs(Math.sin(e.orbit)) * rr - so * 0.36);
-      }
-      if (e.kind === 'droplet') {
-        // 强相互作用力探测器：不进入常规轨道，高速掠过舰队后回环，任何武器都无法击穿。
-        e.orbit += dt * 0.9 * ionSlow;
-        e.pos.set(Math.cos(e.orbit) * so * 0.55,
-                  Math.sin(e.orbit * 1.7) * 18,
-                  -so * 0.55 - Math.abs(Math.sin(e.orbit)) * so * 0.5);
       }
       e.mesh.position.copy(e.pos);
       e.mesh.rotation.y += dt * 1.2;
@@ -3715,6 +3912,7 @@
     combat.storyUntil = 0; combat.warpReady = false; combat.warpDone = false;
     combat.rulesOpen = false; combat.escortWarned = false;
     combat.time = 0; combat.wave = 0; combat.waveAt = 0; combat.kills = 0; combat.losses = 0;
+    combat.droplet = { hits: 0, kills: 0, last: '' };
     combat.hull = 100; combat.shield = 100; combat.salvoCd = 0; combat.wingCd = 1.6;
     combat.order = 'focus'; combat.target = null; combat.result = null;
     combat.tactical = false; combat.log = []; combat.hitFlash = 0;
@@ -3749,7 +3947,11 @@
     for (var s = 0; s < combat.shots.length; s++) { combat.shots[s].active = false; combat.shots[s].mesh.visible = false; }
     for (var b = 0; b < combat.bursts.length; b++) { combat.bursts[b].active = false; combat.bursts[b].mesh.visible = false; }
     for (var bm = 0; bm < combat.beams.length; bm++) { combat.beams[bm].active = false; combat.beams[bm].mesh.visible = false; }
-    wings.forEach(function (w) { w.combatHp = 100; w.shield = 30; w.group.visible = true; });
+    wings.forEach(function (w) {
+      w.combatHp = 100; w.shield = 30; w.group.visible = true;
+      w.dmgHit = 0; w.dmgSparkT = 0;
+      if (w.dmgFx) w.dmgFx.visible = false;
+    });
     var st = $('startscreen'); if (st) st.classList.add('hidden');
     setGear(2, true);
     state.targetC = 0.05; state.speedC = 0.05; state.warp = 0;
@@ -3780,12 +3982,17 @@
     for (var bm = 0; bm < combat.beams.length; bm++) { combat.beams[bm].active = false; combat.beams[bm].mesh.visible = false; }
     if (combat.root) combat.root.visible = false;
     if (combat.turretRoot) combat.turretRoot.visible = false;
-    wings.forEach(function (w) { w.combatHp = 100; w.shield = 30; w.group.visible = true; });
+    wings.forEach(function (w) {
+      w.combatHp = 100; w.shield = 30; w.group.visible = true;
+      w.dmgHit = 0; w.dmgSparkT = 0;
+      if (w.dmgFx) w.dmgFx.visible = false;
+    });
     document.body.classList.remove('combat-on');
     var L = document.getElementById('combat-layer'); if (L) L.classList.add('hidden');
     var st = document.getElementById('c-story'); if (st) st.classList.add('hidden');
     campaignSelectClose();
     combat.target = null;
+    combat.droplet = null;
     combat.storyUntil = 0;
     showToast('返回自由航行', 'FREE FLIGHT RESTORED', false);
     combatHook();
@@ -3916,6 +4123,7 @@
     }
     combatShots(dt);
     combatBursts(dt);
+    combatWingFx(dt, t);
     combatBeams(dt);
     if (combat.shieldMat) {
       var su = combat.shieldMat.uniforms;
@@ -3965,7 +4173,35 @@
     H.hold = combat.missionCfg && combat.missionCfg.hold ? combat.missionCfg.hold : 0;
     H.warpReady = combat.warpReady;
     H.warpDone = combat.warpDone;
+    dropletHook();
     campaignHook();
+  }
+  /* v1.2.2 诊断钩子：把水滴相位、贯穿次数、殉爆数与 11 艘僚舰完整度同步出来，
+     验证脚本据此断言「撞击 → 扣血 → 损毁 → 殉爆」整条链路，不靠源码字符串。 */
+  window.__NS_DROPLET__ = {
+    active: false, phase: 'idle', target: 0, hits: 0, kills: 0, cycles: 0,
+    dmg: DROPLET_RAM.dmg, wingsHp: [], damaged: 0, lost: 0, fx: 0, last: '',
+    snapshot: function () { dropletHook(); return window.__NS_DROPLET__; }
+  };
+  function dropletHook() {
+    var D = window.__NS_DROPLET__, dr = null;
+    if (combat.active) {
+      for (var i = 0; i < combat.enemies.length; i++) {
+        var e = combat.enemies[i];
+        if (e.alive && e.kind === 'droplet') { dr = e; break; }
+      }
+    }
+    D.active = !!dr;
+    D.phase = dr && dr.ram ? dr.ram.phase : 'idle';
+    D.target = dr && dr.ram && dr.ram.target ? wings.indexOf(dr.ram.target) + 1 : 0;
+    D.cycles = dr && dr.ram ? dr.ram.cycles : 0;
+    D.hits = combat.droplet ? combat.droplet.hits : 0;
+    D.kills = combat.droplet ? combat.droplet.kills : 0;
+    D.last = combat.droplet ? combat.droplet.last : '';
+    D.wingsHp = wings.map(function (w) { return +w.combatHp.toFixed(1); });
+    D.damaged = wings.filter(function (w) { return w.combatHp > 0 && w.combatHp < 100; }).length;
+    D.lost = wings.filter(function (w) { return w.combatHp <= 0; }).length;
+    D.fx = wings.filter(function (w) { return w.dmgFx && w.dmgFx.visible; }).length;
   }
   window.__NS_COMBAT__ = {
     active: false, phase: 'idle', tactical: false, mission: 0, time: 0, wave: 0,
